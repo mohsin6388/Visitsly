@@ -400,6 +400,7 @@ import { orgApi, growthApi, voiceApi } from "../../api/saasApi.js";
 import { useAuthStore, useOrgRole } from "../../store/authStore.js";
 import { errText } from "../../lib/saas.jsx";
 import { conversationApi } from "../../api/conversationApi.js";
+import VisitConfirmBadge from "../meetings/VisitConfirmBadge.jsx";
 import { getSocket } from "../../lib/socket.js";
 import { Formatted } from "../../components/WhatsAppPreview.jsx";
 
@@ -692,6 +693,7 @@ function SummaryPanel({ active }) {
                 {m.propertyId?.projectName || "Property not set"} ·{" "}
                 {String(m.status).replaceAll("_", " ")}
               </p>
+              <div className="mt-1"><VisitConfirmBadge meeting={m} /></div>
             </div>
           ))
         ) : (

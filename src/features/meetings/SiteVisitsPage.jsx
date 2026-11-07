@@ -1,8 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, MapPin, Trash2, CalendarClock, CheckCircle2, AlertCircle, XCircle, Loader2, MessageSquare, Bot, CalendarDays } from 'lucide-react';
+import { Plus, MapPin, Trash2, CalendarClock, CheckCircle2, AlertCircle, XCircle, Loader2, MessageSquare, Bot, CalendarDays, PhoneCall } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { meetingApi } from '../../api/meetingApi.js';
 import ScheduleVisitModal from './ScheduleVisitModal.jsx';
+import VisitConfirmBadge from './VisitConfirmBadge.jsx';
+import { voiceApi } from '../../api/saasApi.js';
+import { getSocket } from '../../lib/socket.js';
 
 const STATUSES = ['scheduled', 'visited', 'not_visited', 'rescheduled', 'cancelled'];
 
@@ -30,6 +33,8 @@ export default function SiteVisitsPage() {
   const [showModal, setShowModal] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+  const [callingId, setCallingId] = useState(null);
   const [summary, setSummary] = useState({ total: 0, scheduled: 0, visited: 0, notVisited: 0, rescheduled: 0, cancelled: 0 });
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ page: 1, total: 0, totalPages: 1 });
@@ -51,6 +56,30 @@ export default function SiteVisitsPage() {
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
+  // Realtime: call ke baad visit publish / confirm / reschedule / cancel hote hi list apne-aap refresh ho.
+  useEffect(() => {
+    const socket = getSocket();
+    const refresh = () => fetchList();
+    socket.on('meeting:created', refresh);
+    socket.on('meeting:updated', refresh);
+    return () => { socket.off('meeting:created', refresh); socket.off('meeting:updated', refresh); };
+  }, [fetchList]);
+
+  const handleConfirmCall = async (id) => {
+    setError('');
+    setNotice('');
+    setCallingId(id);
+    try {
+      const res = await voiceApi.confirmMeeting(id);
+      setNotice(res?.message || 'Confirmation call lag rahi hai');
+      await fetchList();
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Confirmation call nahi lag payi');
+    } finally {
+      setCallingId(null);
+    }
+  };
+
   const handleStatusChange = async (id, newStatus) => {
     setError('');
     try { await meetingApi.update(id, { status: newStatus }); await fetchList(); }
@@ -67,7 +96,7 @@ export default function SiteVisitsPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Site Visits</h1><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">WhatsApp chat mein jo visit final hoti hai, wo yahan apne-aap save hoti hai.</p></div>
+        <div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Site Visits</h1><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">WhatsApp chat mein jo visit final hoti hai, AI customer ko call karke confirm karta hai — haan bolte hi wo yahan 'Confirmed' dikhegi. Call na uthe to bhi visit yahan aa jati hai (bina confirm tag ke).</p></div>
         <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
           <Plus size={16} /> Schedule Visit
         </button>
@@ -84,6 +113,7 @@ export default function SiteVisitsPage() {
         ].map(([label, value, Icon, tone]) => <div key={label} className="card !p-3"><div className="flex items-center gap-2"><span className={`flex h-8 w-8 items-center justify-center rounded-lg ${tone}`}><Icon size={16}/></span><div><p className="text-[11px] text-ink-500 dark:text-ink-400">{label}</p><p className="text-lg font-bold text-ink-900 dark:text-white">{Number(value || 0).toLocaleString('en-IN')}</p></div></div></div>)}
       </div>
 
+      {notice && <div className="mt-4 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-950/40 dark:text-green-300">{notice}</div>}
       {error && <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
@@ -119,6 +149,7 @@ export default function SiteVisitsPage() {
                   {m.status.replace('_', ' ')}
                 </span>
                 {m.source === 'whatsapp_ai' ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><Bot size={10} /> WhatsApp AI ne book ki</span> : m.source === 'manual' ? <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-semibold text-ink-600 dark:bg-ink-800 dark:text-ink-300">Manual</span> : null}
+                <VisitConfirmBadge meeting={m} />
               </div>
               <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
                 {[m.leadId?.phone, m.leadId?.email].filter(Boolean).join(' · ') || 'No phone/email'} · {m.preferredDate} at {m.preferredTime}
@@ -133,6 +164,11 @@ export default function SiteVisitsPage() {
             </div>
 
             <div className="flex flex-shrink-0 items-center gap-2">
+              {['scheduled', 'rescheduled'].includes(m.status) && !m.doubleConfirmed && !['requested', 'calling'].includes(m.voiceConfirm?.status) && (
+                <button onClick={() => handleConfirmCall(m._id)} disabled={callingId === m._id} title="AI agent se customer ko call karke visit confirm karwayein" className="inline-flex items-center gap-1 rounded-lg bg-emerald-50 px-2.5 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-900/30 dark:text-emerald-200">
+                  {callingId === m._id ? <Loader2 size={13} className="animate-spin" /> : <PhoneCall size={13} />} Call to confirm
+                </button>
+              )}
               {m.conversationId && <button onClick={() => navigate(`/whatsapp/conversations?id=${m.conversationId}`)} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-200"><MessageSquare size={13} /> Chat</button>}
               <select aria-label="Visit status"
                 value={m.status}

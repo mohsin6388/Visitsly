@@ -73,4 +73,5 @@ export const voiceApi = {
   update: (payload) => api.patch('/voice/settings', payload).then(data),
   call: (leadId) => api.post(`/voice/call/${leadId}`).then(data),
   calls: (params) => api.get('/voice/calls', { params }).then(data),
+  confirmMeeting: (meetingId) => api.post(`/voice/confirm/${meetingId}`).then(data),
 };
