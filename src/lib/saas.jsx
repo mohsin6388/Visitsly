@@ -2,6 +2,7 @@
 // import { Copy } from 'lucide-react';
 
 // /** Small helpers shared by the SaaS pages. */
+// /** Money in a currency: money(4990, "AED") → "AED 4,990", money(3999) → "₹3,999". */
 // export const inr = (n) => `₹${Math.round(Number(n) || 0).toLocaleString('en-IN')}`;
 
 // export const fmtDate = (d) => (d ? new Date(d).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : '—');
@@ -158,6 +159,15 @@ import { useState } from "react";
 import { Copy } from "lucide-react";
 
 /** Small helpers shared by the SaaS pages. */
+export const money = (n, currency = "INR") => {
+  const v = Math.round(Number(n) || 0);
+  if (currency === "AED") return `AED ${v.toLocaleString("en-US")}`;
+  return `₹${v.toLocaleString("en-IN")}`;
+};
+
+export const CYCLE_LABEL = { monthly: "Monthly", halfyearly: "6 months", annual: "Yearly" };
+export const CYCLE_MONTHS = { monthly: 1, halfyearly: 6, annual: 12 };
+
 export const inr = (n) =>
   `₹${Math.round(Number(n) || 0).toLocaleString("en-IN")}`;
 

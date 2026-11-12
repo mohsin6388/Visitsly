@@ -251,10 +251,12 @@ import {
   Phone,
   Mail,
 } from "lucide-react";
-import { billingApi, growthApi } from "../../api/saasApi.js";
+import { billingApi, growthApi, orgApi } from "../../api/saasApi.js";
 import { useAuthStore } from "../../store/authStore.js";
 import {
   inr,
+  money,
+  CYCLE_LABEL,
   fmtDate,
   StatusPill,
   UsageBar,
@@ -263,17 +265,18 @@ import {
 } from "../../lib/saas.jsx";
 
 const ADDON_KEYS = [
-  ["extraUser", "extraUsers", "Extra user"],
+  ["extraUser", "extraUsers", "Extra login"],
+  ["extraAiConversations", "aiPacks", "Extra 1,000 AI chats"],
+  ["voiceMinute", null, "AI calling"],
+  ["metaAdsManagement", null, "Meta Ads management"],
+  ["projectLaunch", null, "Project Launch Package"],
   ["extraNumber", "extraNumbers", "Extra WhatsApp number"],
-  ["extraAiConversations", "aiPacks", "1,000 AI conversations"],
-  ["voiceMinute", null, "AI voice calling"],
-  ["leadRevival", null, "Purani leads revive campaign"],
 ];
 
 function AddonsSection({ org, addons, onMessage }) {
   const request = async (key, label) => {
     const qty =
-      key === "voiceMinute" || key === "leadRevival"
+      ["voiceMinute", "metaAdsManagement", "projectLaunch"].includes(key)
         ? 1
         : Number(window.prompt(`${label} — kitne chahiye?`, "1"));
     if (!qty) return;
@@ -303,7 +306,8 @@ function AddonsSection({ org, addons, onMessage }) {
       </div>
       <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {ADDON_KEYS.map(([key, field, label]) => {
-          const a = addons?.[key];
+          const a = Array.isArray(addons) ? addons.find((x) => x.code === key) : addons?.[key];
+          const cur = org.currency || "INR";
           const have = field ? org.addons?.[field] || 0 : 0;
           return (
             <li
@@ -316,8 +320,12 @@ function AddonsSection({ org, addons, onMessage }) {
                 </span>
                 <span className="text-xs text-ink-500">
                   {a
-                    ? `${inr(a.price)} / ${a.unit === "month" ? "mahina" : a.unit === "minute" ? "minute" : a.unit === "once" ? "ek baar" : "pack"}`
+                    ? a.display ||
+                      (a.price == null
+                        ? "On request"
+                        : `${money(a.price, cur)} / ${a.unit === "month" ? "month" : a.unit === "minute" ? "minute" : a.unit === "once" ? "one-time" : "pack"}`)
                     : ""}
+                  {a?.note ? ` · ${a.note}` : ""}
                   {have ? ` · aapke paas ${have}` : ""}
                 </span>
               </span>
@@ -364,6 +372,10 @@ export default function BillingPage() {
     );
 
   const { org, plans, invoices } = data.data;
+  const cur = data.data.currency || org.currency || "INR";
+  const taxNote = data.data.taxRate
+    ? `+ ${Math.round(data.data.taxRate * 100)}% ${data.data.taxLabel || "GST"}`
+    : `excl. ${data.data.taxLabel || "VAT"}`;
   const sub = org.subscription || {};
 
   const refresh = async (nextOrg) => {
@@ -386,7 +398,7 @@ export default function BillingPage() {
           key: co.keyId,
           subscription_id: co.subscriptionId,
           name: co.productName,
-          description: `${co.quote.planName} (${cycle === "annual" ? "yearly" : "monthly"})`,
+          description: `${co.quote.planName} (${CYCLE_LABEL[cycle] || cycle})`,
           prefill: co.prefill,
           theme: { color: "#064E3B" },
           handler: async (resp) => {
@@ -479,7 +491,7 @@ export default function BillingPage() {
               </h2>
               {org.priceOverride && (
                 <p className="text-sm text-ink-500">
-                  Special price: {inr(org.priceOverride)}/mahina
+                  Special price: {money(org.priceOverride, cur)}/month
                 </p>
               )}
             </div>
@@ -506,7 +518,7 @@ export default function BillingPage() {
             <div>
               <dt className="text-ink-400">Billing</dt>
               <dd className="font-semibold capitalize text-ink-900 dark:text-white">
-                {org.billingCycle === "annual" ? "Yearly" : "Monthly"}
+                {CYCLE_LABEL[org.billingCycle] || "Monthly"} · {org.region === "ae" ? "🇦🇪 UAE (AED)" : "🇮🇳 India (INR)"}
               </dd>
             </div>
           </dl>
@@ -580,7 +592,7 @@ export default function BillingPage() {
             role="tablist"
             aria-label="Billing cycle"
           >
-            {["monthly", "annual"].map((c) => (
+            {["monthly", "halfyearly", "annual"].map((c) => (
               <button
                 key={c}
                 role="tab"
@@ -588,11 +600,39 @@ export default function BillingPage() {
                 onClick={() => setCycle(c)}
                 className={`rounded-md px-3 py-1.5 font-semibold ${cycle === c ? "bg-brand-600 text-white" : "text-ink-600 dark:text-ink-300"}`}
               >
-                {c === "monthly" ? "Monthly" : "Yearly (2 mahine free)"}
+                {c === "monthly" ? "Monthly" : c === "halfyearly" ? "6 months (no setup)" : "Yearly (2 months free)"}
               </button>
             ))}
           </div>
         </div>
+        {org.status !== "active" && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-600 dark:text-ink-300">
+            <span>Billing country:</span>
+            {[["in", "🇮🇳 India"], ["ae", "🇦🇪 UAE"]].map(([r, label]) => (
+              <button
+                key={r}
+                type="button"
+                onClick={async () => {
+                  if (r === org.region) return;
+                  try {
+                    const res = await orgApi.update({ region: r });
+                    await refresh(res.data.org);
+                  } catch (err) {
+                    setMessage({ tone: "error", text: err?.response?.data?.message || "Country change nahi hua" });
+                  }
+                }}
+                className={`rounded-md border px-3 py-1 font-semibold ${org.region === r ? "border-brand-600 bg-brand-50 text-brand-700" : "border-ink-200 dark:border-ink-700"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        {org.region === "ae" && data.data.intlCheckout === false && org.billingConfigured && (
+          <div className="mt-4 rounded-xl border border-ink-200 bg-white p-4 text-sm text-ink-700 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200">
+            UAE (AED) payments abhi bank transfer se hote hain — "Sales se baat karein" ya support par message karein, hamari team plan activate kar degi.
+          </div>
+        )}
         {!org.billingConfigured && (
           <div className="mt-4 rounded-xl border border-ink-200 bg-white p-4 text-sm text-ink-700 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200">
             Online payment jald shuru hoga. Abhi UPI / bank transfer se payment
@@ -625,13 +665,13 @@ export default function BillingPage() {
             )}
           </div>
         )}
-        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className={`mt-4 grid gap-4 sm:grid-cols-2 ${plans.length > 4 ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
           {plans.map((p) => {
             const current =
               p.code === org.plan &&
               org.status === "active" &&
               org.billingCycle === cycle;
-            const price = cycle === "annual" ? p.annual : p.monthly;
+            const price = cycle === "annual" ? p.annual : cycle === "halfyearly" ? p.halfyearly : p.monthly;
             return (
               <article
                 key={p.code}
@@ -648,15 +688,20 @@ export default function BillingPage() {
                   )}
                 </div>
                 <p className="mt-2 font-display text-2xl font-bold text-ink-900 dark:text-white">
-                  {inr(price)}
+                  {money(price, cur)}
+                  {p.contactSales ? "+" : ""}
                   <span className="text-xs font-medium text-ink-400">
                     {" "}
-                    /{cycle === "annual" ? "saal" : "mahina"}
+                    /{cycle === "annual" ? "year" : cycle === "halfyearly" ? "6 months" : "month"}
                   </span>
                 </p>
                 <p className="text-xs text-ink-400">
-                  + GST
-                  {p.setupFee ? ` · setup ${inr(p.setupFee)} (ek baar)` : ""}
+                  {taxNote}
+                  {p.setupFee
+                    ? cycle === "monthly"
+                      ? ` · setup ${money(p.setupFee, cur)} (one-time)`
+                      : ` · setup ${money(p.setupFee, cur)} waived`
+                    : " · no setup fee"}
                 </p>
                 <ul className="mt-3 flex-1 space-y-1.5 text-xs text-ink-600 dark:text-ink-300">
                   {p.highlights.slice(0, 5).map((h) => (
@@ -700,7 +745,7 @@ export default function BillingPage() {
                 ) : (
                   <button
                     onClick={() => buy(p)}
-                    disabled={!!busy || !org.billingConfigured}
+                    disabled={!!busy || !org.billingConfigured || (org.region === "ae" && data.data.intlCheckout === false)}
                     className="btn-primary mt-4 w-full gap-2"
                   >
                     {busy === p.code ? (
@@ -717,8 +762,7 @@ export default function BillingPage() {
         </div>
         <p className="mt-3 text-xs text-ink-400">
           Card, UPI AutoPay ya netbanking e-mandate se auto-renew. Meta ke
-          WhatsApp charges aapke WhatsApp Business account se seedhe Meta ko
-          jaate hain.
+          WhatsApp charges plan se alag hain aur aapke wallet se jaate hain.
         </p>
       </section>
 
@@ -750,7 +794,7 @@ export default function BillingPage() {
                     <td className="py-2 pr-4 text-ink-900 dark:text-white">
                       {inv.description}
                     </td>
-                    <td className="py-2 pr-4 font-mono">{inr(inv.amount)}</td>
+                    <td className="py-2 pr-4 font-mono">{money(inv.amount, inv.currency || "INR")}</td>
                     <td className="py-2">
                       <span
                         className={`rounded-full px-2 py-0.5 text-xs font-semibold ${inv.status === "paid" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}

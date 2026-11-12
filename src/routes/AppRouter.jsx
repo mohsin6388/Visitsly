@@ -31,6 +31,8 @@ import TemplateManagerPage from '../features/templates/TemplateManagerPage.jsx';
 import SignupPage from '../features/auth/SignupPage.jsx';
 import VerifyEmailPage from '../features/auth/VerifyEmailPage.jsx';
 import PricingPage from '../features/saas/PricingPage.jsx';
+import MessagingPolicyPage from '../features/legal/MessagingPolicyPage.jsx';
+import UnsubscribePage from '../features/legal/UnsubscribePage.jsx';
 import BillingPage from '../features/saas/BillingPage.jsx';
 import TeamPage from '../features/saas/TeamPage.jsx';
 import { GetStartedPage } from '../features/saas/SetupChecklist.jsx';
@@ -88,6 +90,8 @@ export default function AppRouter() {
       <Route path="/" element={<HomeRedirect />} />
 
       <Route path="/pricing" element={<PricingPage />} />
+      <Route path="/messaging-policy" element={<MessagingPolicyPage />} />
+      <Route path="/unsubscribe/:token" element={<UnsubscribePage />} />
       <Route path="/support" element={<SupportEntry />} />
       <Route path="/f/:key" element={<PublicFormPage />} />
       <Route path="/cp/:slug/*" element={<CpPortal />} />

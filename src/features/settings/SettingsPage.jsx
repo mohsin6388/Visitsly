@@ -17,6 +17,7 @@ import {
 import { settingsApi } from '../../api/settingsApi.js';
 import { whatsappApi } from '../../api/whatsappApi.js';
 import { emailApi } from '../../api/emailApi.js';
+import MessagingComplianceCard from './MessagingComplianceCard.jsx';
 
 /** Small reusable ON/OFF switch — no design-system toggle exists yet in this app. */
 function Toggle({ checked, onChange, disabled }) {
@@ -378,6 +379,8 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
+
+      <MessagingComplianceCard />
     </div>
   );
 }

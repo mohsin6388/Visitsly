@@ -3,7 +3,8 @@ import api from './axios.js';
 const data = (r) => r.data;
 
 export const publicApi = {
-  plans: () => api.get('/public/plans').then(data),
+  plans: (region) => api.get('/public/plans', { params: region ? { region } : {} }).then(data),
+  messagingPolicy: () => api.get('/public/messaging-policy').then(data),
   branding: (host) => api.get('/public/branding', { params: { host } }).then(data),
   formInfo: (key) => api.get(`/inbound/form/${key}`).then(data),
   submitForm: (key, payload) => api.post(`/inbound/leads/${key}`, payload).then(data),

@@ -63,6 +63,13 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
   const [previewLead, setPreviewLead] = useState(null);
   // Multi-number plans: which company number sends this campaign.
   const waInfo = useAuthStore((st) => st.org?.whatsapp);
+  const orgFeatures = useAuthStore((st) => st.org?.features);
+  const orgMessaging = useAuthStore((st) => st.org?.messaging);
+  // Bulk messaging safety: consent + policy acceptance are required for every launch.
+  const [consentConfirmed, setConsentConfirmed] = useState(false);
+  const [acceptPolicy, setAcceptPolicy] = useState(false);
+  const featureKey = isWhatsApp ? 'bulkWhatsapp' : 'emailCampaigns';
+  const featureLocked = orgFeatures ? orgFeatures[featureKey] === false : false;
   const extraNumbers = waInfo?.extraNumbers || [];
   const [fromNumber, setFromNumber] = useState('');
 
@@ -231,6 +238,8 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
     setLaunchMessage('');
     const validation = validate();
     if (validation) { setLaunchError(validation); return; }
+    if (featureLocked) { setLaunchError(`${isWhatsApp ? 'Bulk WhatsApp' : 'Bulk email'} aapke current plan mein nahi hai. Growth plan ya upar lein (Plan & Billing).`); return; }
+    if (!consentConfirmed || !acceptPolicy) { setLaunchError('Launch se pehle consent confirm karein aur Bulk Messaging Policy accept karein.'); return; }
     setLaunching(true);
     try {
       const payload = {
@@ -241,6 +250,8 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
         dailyLimit: 5000,
         sendTime: (() => { const now = new Date(); return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; })(),
         startDate: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10),
+        acceptPolicy,
+        consentConfirmed,
       };
       if (isWhatsApp) {
         payload.whatsappTemplateName = selectedTemplate.name;
@@ -266,7 +277,14 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
       const response = await campaignApi.launch(payload);
       const queued = response.data?.queued || {};
       const count = isWhatsApp ? queued.whatsapp : queued.email;
-      setLaunchMessage(`${count || 0} ${isWhatsApp ? 'WhatsApp' : 'email'} messages queue mein add hue. Sending progress page par live update hogi.`);
+      const sup = response.data?.suppressed;
+      const skipped = sup ? (sup.whatsapp || 0) + (sup.email || 0) : 0;
+      setLaunchMessage(
+        `${count || 0} ${isWhatsApp ? 'WhatsApp' : 'email'} messages queue mein add hue.` +
+          (skipped ? ` ${skipped} contacts skip hue (opt-out / bounce / do-not-contact).` : '') +
+          (response.data?.sendTimeShifted ? ' Abhi quiet hours hain — messages subah allowed time par jayenge.' : '') +
+          ' Sending progress page par live update hogi.',
+      );
       onLaunched?.();
       setTimeout(() => onClose?.(), 1000);
     } catch (err) {
@@ -334,10 +352,23 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
               </div> : <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800"><div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-ink-900 dark:text-white">Step 2 · Choose email template</h3><p className="mt-1 text-xs text-ink-500 dark:text-ink-400">Saved template ka content per-contact personalize hoga.</p></div><Link to="/email/templates" className="shrink-0 text-xs font-semibold text-brand-600 hover:underline">Manage templates</Link></div><label className="mb-1.5 mt-4 block text-xs font-semibold text-ink-600 dark:text-ink-300">Template</label><select className="input-field" value={emailTemplateId} onChange={(e) => setEmailTemplateId(e.target.value)} disabled={templatesLoading || !emailTemplates.length}><option value="">Select a saved email template</option>{emailTemplates.map((item) => <option key={item._id} value={item._id}>{item.name} · {item.category || 'General'}</option>)}</select>{selectedEmailTemplate ? <div className="mt-3 rounded-lg bg-ink-50 p-3 dark:bg-ink-800/70"><p className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Subject preview</p><p className="mt-1 text-sm font-semibold text-ink-800 dark:text-ink-100">{selectedEmailTemplate.subject}</p>{selectedEmailTemplate.imageUrl && <img src={selectedEmailTemplate.imageUrl} alt="Email template" className="mt-3 max-h-52 w-full rounded-lg object-contain bg-white"/>}<p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-ink-400">Message preview</p><p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-ink-700 dark:text-ink-200">{selectedEmailTemplate.body}</p><p className="mt-2 text-[11px] text-ink-400">Variables such as {'{{name}}'} are filled per recipient.</p></div> : <div className="mt-3 rounded-lg border border-dashed border-ink-200 p-4 text-sm text-ink-500 dark:border-ink-700 dark:text-ink-400">{templatesLoading ? 'Loading saved email templates…' : 'Pehle Email → Templates mein reusable email template create karein.'}</div>}</div>}
 
               <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800"><h3 className="text-sm font-bold text-ink-900 dark:text-white">Send now</h3><p className="mt-1 text-xs leading-5 text-ink-500 dark:text-ink-400">Campaign jobs start as soon as you launch. Messages are still sent one by one with provider-safe pacing; there is no daily schedule or start-time setting.</p></div>
+              {featureLocked && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><b>{isWhatsApp ? 'Bulk WhatsApp' : 'Bulk email'} aapke plan mein nahi hai.</b> Growth plan mein bulk WhatsApp + email, lead assignment aur follow-ups milte hain. <Link to="/billing" className="font-semibold underline">Plan upgrade karein</Link></div>}
+              <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-900 dark:bg-brand-950/20">
+                <h3 className="text-sm font-bold text-ink-900 dark:text-white">Safety rules (apne aap lagte hain)</h3>
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-5 text-ink-600 dark:text-ink-300">
+                  <li>Jo contacts STOP / unsubscribe kar chuke hain, ya jinka email bounce / spam hua hai, unhe message nahi jayega.</li>
+                  <li>Messages sirf {orgMessaging?.quietHoursEnd || '09:00'}–{orgMessaging?.quietHoursStart || '21:00'} (local time) ke beech jaate hain. Raat mein launch kiya to subah bhejenge.</li>
+                  <li>Ek contact ko ek channel par 24 ghante mein 1 aur hafte mein max 3 campaign messages.</li>
+                  <li>Bahut zyada failures, STOP replies, bounces ya spam complaints aaye to campaign khud ruk jayega.</li>
+                  {!isWhatsApp && <li>Har email mein unsubscribe link aur aapka company address apne aap judega{orgMessaging && !orgMessaging.postalAddress ? ' — Settings mein postal address add karein.' : '.'}</li>}
+                </ul>
+                <label className="mt-3 flex items-start gap-2 text-xs text-ink-700 dark:text-ink-200"><input type="checkbox" className="mt-0.5" checked={consentConfirmed} onChange={(e) => setConsentConfirmed(e.target.checked)} /><span>Main confirm karta/karti hoon ki in contacts ne mere business se {isWhatsApp ? 'WhatsApp' : 'email'} messages lene ki permission di hai (enquiry, form ya existing customer). Ye kharidi hui / scraped list nahi hai.</span></label>
+                <label className="mt-2 flex items-start gap-2 text-xs text-ink-700 dark:text-ink-200"><input type="checkbox" className="mt-0.5" checked={acceptPolicy} onChange={(e) => setAcceptPolicy(e.target.checked)} /><span>Maine <Link to="/messaging-policy" target="_blank" className="font-semibold text-brand-700 underline">Bulk Messaging &amp; Acceptable Use Policy</Link> padh li hai aur accept karta/karti hoon.</span></label>
+              </div>
             </section>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-ink-50/70 px-4 py-3 dark:border-ink-800 dark:bg-ink-900 sm:px-5"><p className="text-xs text-ink-500 dark:text-ink-400"><b className="text-ink-800 dark:text-ink-100">{selectedIds.length.toLocaleString('en-IN')}</b> contacts · message tabhi jayega jab aap Start campaign dabayenge.</p><div className="flex gap-2"><button type="button" onClick={onClose} disabled={launching} className="btn-secondary">Cancel</button><button type="submit" disabled={launching || templatesLoading || !selectedIds.length} className="btn-primary flex items-center gap-2 disabled:opacity-50">{launching ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}{launching ? 'Adding to queue…' : 'Start campaign'}</button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-ink-50/70 px-4 py-3 dark:border-ink-800 dark:bg-ink-900 sm:px-5"><p className="text-xs text-ink-500 dark:text-ink-400"><b className="text-ink-800 dark:text-ink-100">{selectedIds.length.toLocaleString('en-IN')}</b> contacts · message tabhi jayega jab aap Start campaign dabayenge.</p><div className="flex gap-2"><button type="button" onClick={onClose} disabled={launching} className="btn-secondary">Cancel</button><button type="submit" disabled={launching || templatesLoading || !selectedIds.length || featureLocked || !consentConfirmed || !acceptPolicy} className="btn-primary flex items-center gap-2 disabled:opacity-50">{launching ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}{launching ? 'Adding to queue…' : 'Start campaign'}</button></div></div>
       </form>
     </div>
     {showSaveAudience && <SaveAudienceModal leadIds={selectedIds} source="selection" onClose={() => setShowSaveAudience(false)} onSaved={(audience) => { setShowSaveAudience(false); setLaunchMessage(`Audience "${audience.name}" save ho gaya.`); loadAudiences(); }} />}

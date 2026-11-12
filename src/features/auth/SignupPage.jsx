@@ -327,6 +327,16 @@ export default function SignupPage() {
     password: "",
     city: "",
     businessType: "broker",
+    region:
+      params.get("region") === "ae" || params.get("region") === "in"
+        ? params.get("region")
+        : (() => {
+            try {
+              return /Dubai|Muscat|Riyadh|Qatar|Bahrain|Kuwait/.test(Intl.DateTimeFormat().resolvedOptions().timeZone || "") ? "ae" : "in";
+            } catch {
+              return "in";
+            }
+          })(),
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
@@ -338,10 +348,10 @@ export default function SignupPage() {
 
   useEffect(() => {
     publicApi
-      .plans()
+      .plans(form.region)
       .then((r) => setPlans(r.data))
       .catch(() => {});
-  }, []);
+  }, [form.region]);
   const chosen = plans?.plans?.find((p) => p.code === plan);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
@@ -519,6 +529,12 @@ export default function SignupPage() {
             </select>
           </Field>
         </div>
+        <Field id="region" error={fieldErrors.region} label="Business country (billing)">
+          <select id="region" className="auth-input px-4" value={form.region} onChange={set("region")}>
+            <option value="in">🇮🇳 India — INR + GST</option>
+            <option value="ae">🇦🇪 UAE — AED</option>
+          </select>
+        </Field>
         <Field id="password" error={fieldErrors.password} label="Password">
           <div className="relative">
             <input
