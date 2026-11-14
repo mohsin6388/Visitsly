@@ -35,7 +35,7 @@ export default function FollowUpSetup({ onSaved }) {
   useEffect(() => {
     settingsApi.get().then((r) => {
       const f = r.data.settings.followUp || {};
-      setCfg({ mode: 'auto', gapsDays: [1, 3, 7], messages: [], startHour: 10, endHour: 19, timezone: 'Asia/Kolkata', templateName: '', templateLanguage: '', templateVariableCount: 0, useAiDate: true, ...f, gapsDays: f.gapsDays?.length ? f.gapsDays : [1, 3, 7], reengage: { enabled: true, gapsDays: [7, 30], message: '', ...(f.reengage || {}) } });
+      setCfg({ mode: 'auto', messages: [], startHour: 10, endHour: 19, timezone: 'Asia/Kolkata', templateName: '', templateLanguage: '', templateVariableCount: 0, useAiDate: true, ...f, gapsDays: f.gapsDays?.length ? f.gapsDays : [1, 3, 7], reengage: { enabled: true, gapsDays: [7, 30], message: '', ...(f.reengage || {}) } });
     }).catch((e) => setMsg({ ok: false, text: errText(e) }));
     whatsappApi.templates().then((r) => setTemplates(r.data?.templates || [])).catch(() => {});
   }, []);
