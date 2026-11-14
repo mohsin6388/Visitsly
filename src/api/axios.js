@@ -7,6 +7,7 @@ const baseURL = configuredBaseURL.endsWith('/') ? configuredBaseURL : `${configu
 export const api = axios.create({
   baseURL,
   withCredentials: true, // sends the httpOnly refresh cookie
+  timeout: 45000, // never leave a spinner running forever on a bad network
 });
 
 api.interceptors.request.use((config) => {

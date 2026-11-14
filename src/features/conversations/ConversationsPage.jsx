@@ -1,781 +1,255 @@
-// import { useEffect, useState, useCallback, useRef } from 'react';
-// import { Search, Send, Bot, UserCog, CheckCheck, X, Users, MessageCircleMore, Sparkles, CalendarCheck, Clock, Zap, PhoneCall, FileSpreadsheet, BadgeCheck, Loader2 } from 'lucide-react';
-// import { useNavigate, useSearchParams } from 'react-router-dom';
-// import { orgApi, growthApi, voiceApi } from '../../api/saasApi.js';
-// import { useAuthStore, useOrgRole } from '../../store/authStore.js';
-// import { errText } from '../../lib/saas.jsx';
-// import { conversationApi } from '../../api/conversationApi.js';
-// import { getSocket } from '../../lib/socket.js';
-// import { Formatted } from '../../components/WhatsAppPreview.jsx';
-
-// const FILTERS = ['unread', 'hot', 'warm', 'cold', 'site_visit', 'closed', 'lost'];
-
-// // A lead's `source` tells us whether it entered the CRM through the Leads
-// // section (manually added / CSV-imported) or messaged the connected
-// // WhatsApp number first and was auto-created by the webhook handler.
-// // Everything that isn't 'whatsapp_inbound' is treated as a CRM lead.
-// function sourceTag(source) {
-//   if (source === 'whatsapp_inbound') {
-//     return {
-//       label: 'Direct WhatsApp',
-//       className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-//       Icon: MessageCircleMore,
-//     };
-//   }
-//   return {
-//     label: 'Lead',
-//     className: 'bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-200',
-//     Icon: Users,
-//   };
-// }
-
-// const LEAD_SCORE = 30;
-// const HOT_SCORE = 60;
-
-// function leadTypeOf(conversation, meetings = []) {
-//   const lead = conversation?.leadId || {};
-//   if (lead.status === 'site_visit' || meetings.length) return { label: 'Visit lead', className: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300' };
-//   const score = Number(lead.leadScore ?? conversation?.currentLeadScore ?? 0);
-//   if (score > HOT_SCORE) return { label: 'Hot lead', className: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' };
-//   if (score > LEAD_SCORE) return { label: 'Lead', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' };
-//   return { label: 'Contact', className: 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300' };
-// }
-
-// function money(value) {
-//   if (value == null) return null;
-//   const n = Number(value);
-//   if (!n) return null;
-//   if (n >= 10000000) return `₹${(n / 10000000).toFixed(n % 10000000 ? 2 : 0)} Cr`;
-//   if (n >= 100000) return `₹${(n / 100000).toFixed(n % 100000 ? 1 : 0)} L`;
-//   return `₹${n.toLocaleString('en-IN')}`;
-// }
-
-// /** Right-hand panel: short summary of what the customer and the AI talked about. */
-// /** Assign / AI call / cost sheet / booked — the SaaS growth actions for one lead. */
-// function LeadActions({ lead }) {
-//   const role = useOrgRole();
-//   const org = useAuthStore((st) => st.org);
-//   const navigate = useNavigate();
-//   const isManager = role === 'owner' || role === 'manager';
-//   const [team, setTeam] = useState([]);
-//   const [assigned, setAssigned] = useState(lead.assignedTo ? String(lead.assignedTo) : '');
-//   const [booked, setBooked] = useState(Boolean(lead.bookedAt));
-//   const [msg, setMsg] = useState(null);
-//   const [busy, setBusy] = useState('');
-//   useEffect(() => { setAssigned(lead.assignedTo ? String(lead.assignedTo) : ''); setBooked(Boolean(lead.bookedAt)); setMsg(null); }, [lead._id, lead.assignedTo, lead.bookedAt]);
-//   useEffect(() => { if (isManager) orgApi.team().then((r) => setTeam(r.data.items.filter((m) => m.isActive))).catch(() => {}); }, [isManager]);
-//   const act = async (key, fn) => {
-//     setBusy(key);
-//     setMsg(null);
-//     try { const res = await fn(); setMsg({ ok: true, text: res?.message || 'Done' }); } catch (err) { setMsg({ ok: false, text: errText(err) }); } finally { setBusy(''); }
-//   };
-//   if (!lead?._id) return null;
-//   return <div className="space-y-2.5 rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-//     <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Zap size={13} /> Actions</p>
-//     {isManager && team.length > 0 && <label className="block text-xs text-ink-500">Assigned to
-//       <select className="input-field mt-1 !py-1.5" value={assigned} onChange={(e) => { const v = e.target.value; setAssigned(v); act('assign', () => growthApi.assign([lead._id], v || null)); }}>
-//         <option value="">— Unassigned —</option>
-//         {team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
-//       </select>
-//     </label>}
-//     <div className="grid grid-cols-2 gap-2">
-//       {org?.voice?.enabled && <button className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => act('call', () => voiceApi.call(lead._id))}>{busy === 'call' ? <Loader2 size={13} className="animate-spin" /> : <PhoneCall size={13} />} AI call</button>}
-//       <button className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs" onClick={() => navigate(`/quotes?lead=${lead._id}`)}><FileSpreadsheet size={13} /> Cost sheet</button>
-//       {isManager && (booked
-//         ? <button className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs text-green-700" disabled={!!busy} onClick={() => act('book', async () => { const r = await growthApi.markBooked(lead._id, { undo: true }); setBooked(false); return r; })}><BadgeCheck size={13} /> Booked ✓</button>
-//         : <button className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => { const v = window.prompt('Deal value (₹) — channel partner commission aur reports ke liye', ''); if (v === null) return; act('book', async () => { const r = await growthApi.markBooked(lead._id, { dealValue: Number(String(v).replace(/[^\d]/g, '')) || undefined }); setBooked(true); return r; }); }}><BadgeCheck size={13} /> Mark booked</button>)}
-//     </div>
-//     {msg && <p className={`text-xs ${msg.ok ? 'text-green-700' : 'text-red-600'}`}>{msg.text}</p>}
-//   </div>;
-// }
-
-// function SummaryPanel({ active }) {
-//   const conversation = active.conversation;
-//   const lead = conversation.leadId || {};
-//   const insights = active.insights || {};
-//   const meetings = insights.meetings || [];
-//   const req = conversation.collectedRequirements || {};
-//   const type = leadTypeOf(conversation, meetings);
-//   const score = Number(lead.leadScore ?? conversation.currentLeadScore ?? 0);
-//   const budget = [money(req.budgetMin), money(req.budgetMax)].filter(Boolean);
-//   const facts = [
-//     ['Requirement', [req.bhk && `${req.bhk} BHK`, req.propertyType].filter(Boolean).join(' · ')],
-//     ['Budget', budget.length === 2 && budget[0] !== budget[1] ? `${budget[0]} – ${budget[1]}` : budget[0]],
-//     ['City', req.city || lead.city],
-//     ['Mobile', lead.phone],
-//     ['Email', lead.email],
-//   ].filter(([, value]) => value);
-//   return <aside className="hidden w-80 flex-shrink-0 flex-col gap-3 overflow-y-auto xl:flex">
-//     <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-//       <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300"><Sparkles size={13} /> Short summary</p>
-//       <p className="text-sm leading-6 text-ink-700 dark:text-ink-200">{conversation.aiSummary || 'Customer ke reply aane par AI yahan short summary likhega.'}</p>
-//       <div className="mt-3 flex items-center justify-between rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60"><span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${type.className}`}>{type.label}</span><span className="font-display text-2xl font-bold text-ink-900 dark:text-white">{score}<span className="text-xs font-medium text-ink-400">/100</span></span></div>
-//       {insights.latestScore?.reason && <p className="mt-2 text-xs leading-5 text-ink-500 dark:text-ink-400">{insights.latestScore.reason}</p>}
-//       {facts.length > 0 && <dl className="mt-3 space-y-1.5 text-sm">{facts.map(([label, value]) => <div key={label} className="flex justify-between gap-3"><dt className="text-ink-500 dark:text-ink-400">{label}</dt><dd className="truncate text-right font-medium text-ink-800 dark:text-ink-100">{value}</dd></div>)}</dl>}
-//     </div>
-//     <LeadActions lead={lead} />
-//     <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-//       <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><CalendarCheck size={13} /> Site visit</p>
-//       {meetings.length ? meetings.map((m) => <div key={m._id} className="mb-2 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-900 last:mb-0 dark:bg-teal-900/20 dark:text-teal-100"><p className="font-semibold">{m.preferredDate} · {m.preferredTime}</p><p className="text-xs capitalize">{m.propertyId?.projectName || 'Property not set'} · {String(m.status).replaceAll('_', ' ')}</p></div>) : <p className="text-sm text-ink-400">Abhi koi visit book nahi hui.</p>}
-//     </div>
-//     <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-//       <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Clock size={13} /> Next follow-up</p>
-//       {insights.followUp ? <><p className="text-sm font-semibold text-ink-800 dark:text-ink-100">{new Date(insights.followUp.nextFollowUpDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' })}</p><p className="mt-1 text-sm leading-5 text-ink-600 dark:text-ink-300">{insights.followUp.nextFollowUpMessage}</p></> : <p className="text-sm text-ink-400">Koi follow-up pending nahi.</p>}
-//     </div>
-//   </aside>;
-// }
-
-// export default function ConversationsPage() {
-//   const [searchParams, setSearchParams] = useSearchParams();
-//   const [conversations, setConversations] = useState([]);
-//   const [filter, setFilter] = useState('');
-//   const [search, setSearch] = useState('');
-//   const [activeId, setActiveId] = useState(null);
-//   const [active, setActive] = useState(null); // { conversation, messages }
-//   const [text, setText] = useState('');
-//   const [sending, setSending] = useState(false);
-//   const bottomRef = useRef(null);
-
-//   const fetchList = useCallback(async () => {
-//     const res = await conversationApi.list({
-//       ...(filter ? { filter } : {}),
-//       ...(search ? { search } : {}),
-//       limit: 50,
-//     });
-//     setConversations(res.data.conversations);
-//   }, [filter, search]);
-
-//   useEffect(() => { fetchList(); }, [fetchList]);
-
-//   // On wide screens open the latest chat straight away so its summary is visible.
-//   useEffect(() => {
-//     if (activeId || !conversations.length || searchParams.get('id') || searchParams.get('lead')) return;
-//     if (window.matchMedia('(min-width: 1280px)').matches) openConversation(conversations[0]._id);
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, [conversations]);
-
-//   const openConversation = async (id) => {
-//     setActiveId(id);
-//     const res = await conversationApi.get(id);
-//     setActive(res.data);
-//     if (res.data.conversation.unreadCount > 0) {
-//       await conversationApi.markRead(id);
-//       fetchList();
-//     }
-//   };
-
-//   // Deep links: ?id=<conversationId> or ?lead=<leadId> (from Leads, Follow Ups, Site Visits)
-//   useEffect(() => {
-//     const id = searchParams.get('id');
-//     const leadId = searchParams.get('lead');
-//     if (!id && !leadId) return;
-//     (async () => {
-//       try {
-//         if (id) await openConversation(id);
-//         else {
-//           const res = await conversationApi.list({ leadId, limit: 1 });
-//           const match = res.data.conversations?.[0];
-//           if (match) await openConversation(match._id);
-//         }
-//       } finally {
-//         setSearchParams({}, { replace: true });
-//       }
-//     })();
-//     // eslint-disable-next-line react-hooks/exhaustive-deps
-//   }, []);
-
-//   useEffect(() => {
-//     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-//   }, [active?.messages]);
-
-//   // Real-time: new messages push into the open thread + refresh the list order/unread badges
-//   useEffect(() => {
-//     const socket = getSocket();
-//     const onNewMessage = ({ conversationId, message }) => {
-//       fetchList();
-//       if (conversationId === activeId) {
-//         setActive((prev) => (prev ? { ...prev, messages: [...prev.messages, message] } : prev));
-//       }
-//     };
-//     socket.on('conversation:newMessage', onNewMessage);
-//     return () => socket.off('conversation:newMessage', onNewMessage);
-//   }, [activeId, fetchList]);
-
-//   const handleSend = async (e) => {
-//     e.preventDefault();
-//     if (!text.trim()) return;
-//     setSending(true);
-//     try {
-//       await conversationApi.sendMessage(activeId, text.trim());
-//       setText('');
-//     } finally {
-//       setSending(false);
-//     }
-//   };
-
-//   const toggleAI = async () => {
-//     if (active.conversation.status === 'manual') {
-//       const res = await conversationApi.resumeAI(activeId);
-//       setActive((p) => ({ ...p, conversation: res.data.conversation }));
-//     } else {
-//       const res = await conversationApi.takeover(activeId);
-//       setActive((p) => ({ ...p, conversation: res.data.conversation }));
-//     }
-//     fetchList();
-//   };
-
-//   const handleClose = async () => {
-//     if (!confirm('Close this conversation?')) return;
-//     const res = await conversationApi.close(activeId);
-//     setActive((p) => ({ ...p, conversation: res.data.conversation }));
-//     fetchList();
-//   };
-
-//   return (
-//     <div className="flex h-[calc(100vh-8rem)] gap-4">
-//       {/* Left: conversation list */}
-//       <div className="flex w-full max-w-xs flex-shrink-0 flex-col rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
-//         <div className="border-b border-ink-100 p-3 dark:border-ink-800">
-//           <div className="relative">
-//             <Search className="absolute left-2.5 top-2.5 text-ink-400" size={16} />
-//             <input
-//               value={search}
-//               onChange={(e) => setSearch(e.target.value)}
-//               placeholder="Search name or phone…"
-//               className="w-full rounded-lg border border-ink-200 py-2 pl-8 pr-2 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
-//             />
-//           </div>
-//           <div className="mt-2 flex flex-wrap gap-1">
-//             <button onClick={() => setFilter('')} className={`rounded-full px-2 py-1 text-xs ${!filter ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'}`}>All</button>
-//             {FILTERS.map((f) => (
-//               <button key={f} onClick={() => setFilter(f)} className={`rounded-full px-2 py-1 text-xs capitalize ${filter === f ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'}`}>
-//                 {f.replace('_', ' ')}
-//               </button>
-//             ))}
-//           </div>
-//         </div>
-
-//         <div className="flex-1 overflow-y-auto">
-//           {conversations.map((c) => {
-//             const tag = sourceTag(c.leadId?.source);
-//             const type = leadTypeOf(c);
-//             return (
-//               <button
-//                 key={c._id}
-//                 onClick={() => openConversation(c._id)}
-//                 className={`flex w-full flex-col gap-1 border-b border-ink-50 px-3 py-3 text-left dark:border-ink-800 ${activeId === c._id ? 'bg-brand-50 dark:bg-ink-800' : 'hover:bg-ink-50 dark:hover:bg-ink-800/50'}`}
-//               >
-//                 <div className="flex items-center justify-between">
-//                   <span className="font-medium text-ink-900 dark:text-white">{c.leadId?.name || 'Unknown'}</span>
-//                   {c.unreadCount > 0 && (
-//                     <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">{c.unreadCount}</span>
-//                   )}
-//                 </div>
-//                 <div className="flex items-center justify-between">
-//                   <span className="text-xs text-ink-500 dark:text-ink-400">{c.leadId?.phone}</span>
-//                   <span className="flex items-center gap-1">
-//                     {tag.label !== 'Lead' && <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tag.className}`}><tag.Icon size={10} /> {tag.label}</span>}
-//                     <span className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${type.className}`}>{type.label} · {Number(c.leadId?.leadScore ?? c.currentLeadScore ?? 0)}</span>
-//                   </span>
-//                 </div>
-//               </button>
-//             );
-//           })}
-//           {conversations.length === 0 && (
-//             <p className="p-4 text-center text-sm text-ink-400">Koi conversation nahi mili</p>
-//           )}
-//         </div>
-//       </div>
-
-//       {/* Right: thread */}
-//       <div className="flex flex-1 flex-col rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
-//         {!active ? (
-//           <div className="flex flex-1 items-center justify-center text-sm text-ink-400">
-//             Ek conversation select karo
-//           </div>
-//         ) : (
-//           <>
-//             <div className="flex items-center justify-between border-b border-ink-100 p-3 dark:border-ink-800">
-//               <div>
-//                 <div className="flex items-center gap-2">
-//                   <p className="font-semibold text-ink-900 dark:text-white">{active.conversation.leadId?.name}</p>
-//                   {(() => {
-//                     const tag = sourceTag(active.conversation.leadId?.source);
-//                     if (tag.label === 'Lead') return null; // lead type is shown in the summary panel
-//                     return (
-//                       <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tag.className}`}>
-//                         <tag.Icon size={10} /> {tag.label}
-//                       </span>
-//                     );
-//                   })()}
-//                 </div>
-//                 <p className="text-xs text-ink-500 dark:text-ink-400">{active.conversation.leadId?.phone}</p>
-//               </div>
-//               <div className="flex items-center gap-2">
-//                 <button
-//                   onClick={toggleAI}
-//                   className="btn-secondary flex items-center gap-1.5 text-xs"
-//                   title={active.conversation.status === 'manual' ? 'Resume AI' : 'Take over chat'}
-//                 >
-//                   {active.conversation.status === 'manual' ? <Bot size={14} /> : <UserCog size={14} />}
-//                   {active.conversation.status === 'manual' ? 'Resume AI' : 'Take Over'}
-//                 </button>
-//                 <button onClick={handleClose} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" title="Close conversation">
-//                   <X size={16} />
-//                 </button>
-//               </div>
-//             </div>
-
-//             {active.conversation.aiSummary && (
-//               <div className="border-b border-ink-100 bg-ink-50 p-2.5 text-xs text-ink-600 dark:border-ink-800 dark:bg-ink-800/50 dark:text-ink-300 xl:hidden">
-//                 <span className="font-semibold">AI Summary: </span>{active.conversation.aiSummary}
-//               </div>
-//             )}
-
-//             <div className="flex-1 space-y-3 overflow-y-auto p-4">
-//               {active.messages.map((m) => (
-//                 <div key={m._id} className={`flex ${m.sender === 'customer' ? 'justify-start' : 'justify-end'}`}>
-//                   <div className={`max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
-//                     m.sender === 'customer'
-//                       ? 'bg-ink-100 text-ink-900 dark:bg-ink-800 dark:text-white'
-//                       : m.sender === 'ai'
-//                       ? 'bg-brand-100 text-brand-900 dark:bg-brand-900/40 dark:text-brand-100'
-//                       : 'bg-brand-600 text-white'
-//                   }`}>
-//                     <p className="whitespace-pre-wrap break-words"><Formatted text={m.text} /></p>
-//                     <div className="mt-1 flex items-center gap-1 text-[10px] opacity-70">
-//                       {m.sender !== 'customer' && <CheckCheck size={11} />}
-//                       {new Date(m.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-//                       {m.sender === 'ai' && <span className="ml-1">· AI bot</span>}
-//                       {m.sender === 'broker' && <span className="ml-1">· Aap</span>}
-//                     </div>
-//                   </div>
-//                 </div>
-//               ))}
-//               <div ref={bottomRef} />
-//             </div>
-
-//             <form onSubmit={handleSend} className="flex gap-2 border-t border-ink-100 p-3 dark:border-ink-800">
-//               <input
-//                 value={text}
-//                 onChange={(e) => setText(e.target.value)}
-//                 placeholder="Type a message…"
-//                 className="flex-1 rounded-lg border border-ink-200 px-3 py-2 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
-//               />
-//               <button type="submit" disabled={sending} className="btn-primary flex items-center gap-1.5">
-//                 <Send size={16} />
-//               </button>
-//             </form>
-//           </>
-//         )}
-//       </div>
-
-//       {active && <SummaryPanel active={active} />}
-//     </div>
-//   );
-// }
-
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Search,
-  Send,
-  Bot,
-  UserCog,
-  CheckCheck,
-  X,
-  Users,
-  MessageCircleMore,
-  Sparkles,
-  CalendarCheck,
-  Clock,
-  Zap,
-  PhoneCall,
-  FileSpreadsheet,
-  BadgeCheck,
-  Loader2,
-  AlertTriangle,
-} from "lucide-react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import { orgApi, growthApi, voiceApi } from "../../api/saasApi.js";
-import { useAuthStore, useOrgRole } from "../../store/authStore.js";
-import { errText } from "../../lib/saas.jsx";
-import { conversationApi } from "../../api/conversationApi.js";
-import { getSocket } from "../../lib/socket.js";
-import { Formatted } from "../../components/WhatsAppPreview.jsx";
+  Search, Send, Bot, UserCog, X, MessageCircleMore, AlertTriangle, Filter, Check, Paperclip,
+  ArrowLeft, Info, RefreshCw, FileText, Image as ImageIcon, Loader2, Lock, ChevronDown, MessagesSquare,
+} from 'lucide-react';
+import { conversationApi } from '../../api/conversationApi.js';
+import { propertyApi } from '../../api/propertyApi.js';
+import { getSocket } from '../../lib/socket.js';
+import { errText } from '../../lib/saas.jsx';
+import { useOrgRole } from '../../store/authStore.js';
+import { toast, showDialog, SkeletonRows, EmptyState, Modal } from '../../components/ui/index.jsx';
+import MessageBubble from './MessageBubble.jsx';
+import InsightsPanel, { leadTypeOf } from './InsightsPanel.jsx';
 
 const FILTERS = [
-  "unread",
-  "hot",
-  "warm",
-  "cold",
-  "site_visit",
-  "closed",
-  "lost",
+  { key: '', label: 'Saari chats' },
+  { key: 'unread', label: 'Unread messages' },
+  { key: 'needs_reply', label: 'Reply baaki hai' },
+  { key: 'direct', label: 'Direct WhatsApp chat' },
+  { key: 'hot', label: 'Hot leads 🔥' },
+  { key: 'warm', label: 'Warm leads' },
+  { key: 'site_visit', label: 'Site visit' },
+  { key: 'closed', label: 'Closed leads' },
+  { key: 'manual', label: 'AI band (aap reply kar rahe)' },
+  { key: 'lost', label: 'Lost' },
 ];
 
-// A lead's `source` tells us whether it entered the CRM through the Leads
-// section (manually added / CSV-imported) or messaged the connected
-// WhatsApp number first and was auto-created by the webhook handler.
-// Everything that isn't 'whatsapp_inbound' is treated as a CRM lead.
-function sourceTag(source) {
-  if (source === "whatsapp_inbound") {
-    return {
-      label: "Direct WhatsApp",
-      className:
-        "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300",
-      Icon: MessageCircleMore,
-    };
-  }
-  return {
-    label: "Lead",
-    className:
-      "bg-brand-100 text-brand-700 dark:bg-brand-900/30 dark:text-brand-200",
-    Icon: Users,
-  };
+const PAGE = 30;
+
+function timeLabel(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Kal';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
-const LEAD_SCORE = 30;
-const HOT_SCORE = 60;
-
-function leadTypeOf(conversation, meetings = []) {
-  const lead = conversation?.leadId || {};
-  if (lead.status === "site_visit" || meetings.length)
-    return {
-      label: "Visit lead",
-      className:
-        "bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300",
-    };
-  const score = Number(lead.leadScore ?? conversation?.currentLeadScore ?? 0);
-  if (score > HOT_SCORE)
-    return {
-      label: "Hot lead",
-      className: "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300",
-    };
-  if (score > LEAD_SCORE)
-    return {
-      label: "Lead",
-      className:
-        "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300",
-    };
-  return {
-    label: "Contact",
-    className: "bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300",
-  };
+function dayLabel(value) {
+  const d = new Date(value);
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return 'Aaj';
+  const y = new Date(now); y.setDate(now.getDate() - 1);
+  if (d.toDateString() === y.toDateString()) return 'Kal';
+  return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
-function money(value) {
-  if (value == null) return null;
-  const n = Number(value);
-  if (!n) return null;
-  if (n >= 10000000)
-    return `₹${(n / 10000000).toFixed(n % 10000000 ? 2 : 0)} Cr`;
-  if (n >= 100000) return `₹${(n / 100000).toFixed(n % 100000 ? 1 : 0)} L`;
-  return `₹${n.toLocaleString("en-IN")}`;
+function mergeMessages(existing, incoming) {
+  const seen = new Set(existing.map((m) => String(m._id)));
+  const add = incoming.filter((m) => m && !seen.has(String(m._id)));
+  if (!add.length) return existing;
+  return [...existing, ...add].sort((a, b) => new Date(a.timestamp || a.createdAt) - new Date(b.timestamp || b.createdAt));
 }
 
-/** Right-hand panel: short summary of what the customer and the AI talked about. */
-/** Assign / AI call / cost sheet / booked — the SaaS growth actions for one lead. */
-function LeadActions({ lead }) {
-  const role = useOrgRole();
-  const org = useAuthStore((st) => st.org);
-  const navigate = useNavigate();
-  const isManager = role === "owner" || role === "manager";
-  const [team, setTeam] = useState([]);
-  const [assigned, setAssigned] = useState(
-    lead.assignedTo ? String(lead.assignedTo) : "",
-  );
-  const [booked, setBooked] = useState(Boolean(lead.bookedAt));
-  const [msg, setMsg] = useState(null);
-  const [busy, setBusy] = useState("");
+/* ------------------------------------------------------------------ */
+/* Send brochure / photos of a project in one click                    */
+/* ------------------------------------------------------------------ */
+function PropertyMediaModal({ open, onClose, conversation, onSent }) {
+  const [query, setQuery] = useState('');
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState('');
   useEffect(() => {
-    setAssigned(lead.assignedTo ? String(lead.assignedTo) : "");
-    setBooked(Boolean(lead.bookedAt));
-    setMsg(null);
-  }, [lead._id, lead.assignedTo, lead.bookedAt]);
-  useEffect(() => {
-    if (isManager)
-      orgApi
-        .team()
-        .then((r) => setTeam(r.data.items.filter((m) => m.isActive)))
-        .catch(() => {});
-  }, [isManager]);
-  const act = async (key, fn) => {
-    setBusy(key);
-    setMsg(null);
+    if (!open) return undefined;
+    const t = setTimeout(() => {
+      setLoading(true);
+      propertyApi.list({ search: query || undefined, limit: 20, page: 1 })
+        .then((r) => setItems(r.data?.properties || r.data?.items || []))
+        .catch(() => setItems([]))
+        .finally(() => setLoading(false));
+    }, 250);
+    return () => clearTimeout(t);
+  }, [open, query]);
+  const recommended = (conversation?.recommendedProperties || []).map((p) => String(p._id || p));
+  const sorted = [...items].sort((a, b) => recommended.includes(String(b._id)) - recommended.includes(String(a._id)));
+  const send = async (p, kind) => {
+    setBusy(`${p._id}:${kind}`);
     try {
-      const res = await fn();
-      setMsg({ ok: true, text: res?.message || "Done" });
+      const r = await conversationApi.sendPropertyMedia(conversation._id, p._id, kind);
+      toast.success(r.message || 'Bhej diya');
+      onSent?.(r.data?.messages || []);
+      onClose();
     } catch (err) {
-      setMsg({ ok: false, text: errText(err) });
+      showDialog({ title: 'Nahi bheja ja saka', message: errText(err) });
     } finally {
-      setBusy("");
+      setBusy('');
     }
   };
-  if (!lead?._id) return null;
   return (
-    <div className="space-y-2.5 rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500">
-        <Zap size={13} /> Actions
-      </p>
-      {isManager && team.length > 0 && (
-        <label className="block text-xs text-ink-500">
-          Assigned to
-          <select
-            className="input-field mt-1 !py-1.5"
-            value={assigned}
-            onChange={(e) => {
-              const v = e.target.value;
-              setAssigned(v);
-              act("assign", () => growthApi.assign([lead._id], v || null));
-            }}
-          >
-            <option value="">— Unassigned —</option>
-            {team.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      )}
-      <div className="grid grid-cols-2 gap-2">
-        {org?.voice?.enabled && (
-          <button
-            className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs"
-            disabled={!!busy}
-            onClick={() => act("call", () => voiceApi.call(lead._id))}
-          >
-            {busy === "call" ? (
-              <Loader2 size={13} className="animate-spin" />
-            ) : (
-              <PhoneCall size={13} />
-            )}{" "}
-            AI call
-          </button>
-        )}
-        <button
-          className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs"
-          onClick={() => navigate(`/quotes?lead=${lead._id}`)}
-        >
-          <FileSpreadsheet size={13} /> Cost sheet
-        </button>
-        {isManager &&
-          (booked ? (
-            <button
-              className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs text-green-700"
-              disabled={!!busy}
-              onClick={() =>
-                act("book", async () => {
-                  const r = await growthApi.markBooked(lead._id, {
-                    undo: true,
-                  });
-                  setBooked(false);
-                  return r;
-                })
-              }
-            >
-              <BadgeCheck size={13} /> Booked ✓
-            </button>
-          ) : (
-            <button
-              className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs"
-              disabled={!!busy}
-              onClick={() => {
-                const v = window.prompt(
-                  "Deal value (₹) — channel partner commission aur reports ke liye",
-                  "",
-                );
-                if (v === null) return;
-                act("book", async () => {
-                  const r = await growthApi.markBooked(lead._id, {
-                    dealValue:
-                      Number(String(v).replace(/[^\d]/g, "")) || undefined,
-                  });
-                  setBooked(true);
-                  return r;
-                });
-              }}
-            >
-              <BadgeCheck size={13} /> Mark booked
-            </button>
-          ))}
+    <Modal open={open} onClose={onClose} title="Property ka brochure / photos bhejein">
+      <div className="relative mb-3">
+        <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
+        <input autoFocus className="input-field !pl-9" placeholder="Project ka naam search karein" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      {msg && (
-        <p className={`text-xs ${msg.ok ? "text-green-700" : "text-red-600"}`}>
-          {msg.text}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function SummaryPanel({ active }) {
-  const conversation = active.conversation;
-  const lead = conversation.leadId || {};
-  const insights = active.insights || {};
-  const meetings = insights.meetings || [];
-  const req = conversation.collectedRequirements || {};
-  const type = leadTypeOf(conversation, meetings);
-  const score = Number(lead.leadScore ?? conversation.currentLeadScore ?? 0);
-  const budget = [money(req.budgetMin), money(req.budgetMax)].filter(Boolean);
-  const facts = [
-    [
-      "Requirement",
-      [req.bhk && `${req.bhk} BHK`, req.propertyType]
-        .filter(Boolean)
-        .join(" · "),
-    ],
-    [
-      "Budget",
-      budget.length === 2 && budget[0] !== budget[1]
-        ? `${budget[0]} – ${budget[1]}`
-        : budget[0],
-    ],
-    ["City", req.city || lead.city],
-    ["Mobile", lead.phone],
-    ["Email", lead.email],
-  ].filter(([, value]) => value);
-  return (
-    <aside className="hidden w-80 flex-shrink-0 flex-col gap-3 overflow-y-auto xl:flex">
-      <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300">
-          <Sparkles size={13} /> Short summary
-        </p>
-        <p className="text-sm leading-6 text-ink-700 dark:text-ink-200">
-          {conversation.aiSummary ||
-            "Customer ke reply aane par AI yahan short summary likhega."}
-        </p>
-        <div className="mt-3 flex items-center justify-between rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60">
-          <span
-            className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${type.className}`}
-          >
-            {type.label}
-          </span>
-          <span className="font-display text-2xl font-bold text-ink-900 dark:text-white">
-            {score}
-            <span className="text-xs font-medium text-ink-400">/100</span>
-          </span>
-        </div>
-        {insights.latestScore?.reason && (
-          <p className="mt-2 text-xs leading-5 text-ink-500 dark:text-ink-400">
-            {insights.latestScore.reason}
-          </p>
-        )}
-        {facts.length > 0 && (
-          <dl className="mt-3 space-y-1.5 text-sm">
-            {facts.map(([label, value]) => (
-              <div key={label} className="flex justify-between gap-3">
-                <dt className="text-ink-500 dark:text-ink-400">{label}</dt>
-                <dd className="truncate text-right font-medium text-ink-800 dark:text-ink-100">
-                  {value}
-                </dd>
+      {loading ? <SkeletonRows rows={4} /> : !sorted.length ? <p className="py-8 text-center text-sm text-ink-500">Koi property nahi mili. Properties page par project jodein.</p> : (
+        <ul className="divide-y divide-ink-100 dark:divide-ink-800">
+          {sorted.map((p) => (
+            <li key={p._id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold text-ink-900 dark:text-white">{p.projectName}{recommended.includes(String(p._id)) && <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">AI ne suggest kiya</span>}</p>
+                <p className="text-xs text-ink-500">{[p.bhk && `${p.bhk} BHK`, p.location, p.city].filter(Boolean).join(' · ')}</p>
               </div>
-            ))}
-          </dl>
-        )}
-      </div>
-      <LeadActions lead={lead} />
-      <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500">
-          <CalendarCheck size={13} /> Site visit
-        </p>
-        {meetings.length ? (
-          meetings.map((m) => (
-            <div
-              key={m._id}
-              className="mb-2 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-900 last:mb-0 dark:bg-teal-900/20 dark:text-teal-100"
-            >
-              <p className="font-semibold">
-                {m.preferredDate} · {m.preferredTime}
-              </p>
-              <p className="text-xs capitalize">
-                {m.propertyId?.projectName || "Property not set"} ·{" "}
-                {String(m.status).replaceAll("_", " ")}
-              </p>
-            </div>
-          ))
-        ) : (
-          <p className="text-sm text-ink-400">Abhi koi visit book nahi hui.</p>
-        )}
-      </div>
-      <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500">
-          <Clock size={13} /> Next follow-up
-        </p>
-        {insights.followUp ? (
-          <>
-            <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">
-              {new Date(insights.followUp.nextFollowUpDate).toLocaleDateString(
-                "en-IN",
-                { day: "2-digit", month: "short" },
-              )}
-            </p>
-            <p className="mt-1 text-sm leading-5 text-ink-600 dark:text-ink-300">
-              {insights.followUp.nextFollowUpMessage}
-            </p>
-          </>
-        ) : (
-          <p className="text-sm text-ink-400">Koi follow-up pending nahi.</p>
-        )}
-      </div>
-    </aside>
+              <div className="flex gap-1.5">
+                <button type="button" disabled={!!busy || !p.brochureUrl} title={p.brochureUrl ? '' : 'Brochure upload nahi hai'} onClick={() => send(p, 'brochure')} className="btn-secondary gap-1 !px-2.5 !py-1.5 text-xs disabled:opacity-40">{busy === `${p._id}:brochure` ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Brochure</button>
+                <button type="button" disabled={!!busy || !(p.images || []).length} title={(p.images || []).length ? '' : 'Photos upload nahi hain'} onClick={() => send(p, 'photos')} className="btn-secondary gap-1 !px-2.5 !py-1.5 text-xs disabled:opacity-40">{busy === `${p._id}:photos` ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />} Photos</button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Modal>
   );
 }
 
+/* ------------------------------------------------------------------ */
 export default function ConversationsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [conversations, setConversations] = useState([]);
-  const [filter, setFilter] = useState("");
-  const [search, setSearch] = useState("");
-  const [activeId, setActiveId] = useState(null);
-  const [active, setActive] = useState(null); // { conversation, messages }
-  const [text, setText] = useState("");
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef(null);
-  const role = useOrgRole();
   const navigate = useNavigate();
+  const role = useOrgRole();
 
-  const fetchList = useCallback(async () => {
-    const res = await conversationApi.list({
-      ...(filter ? { filter } : {}),
-      ...(search ? { search } : {}),
-      limit: 50,
-    });
-    setConversations(res.data.conversations);
+  // List
+  const [conversations, setConversations] = useState([]);
+  const [listLoading, setListLoading] = useState(true);
+  const [listError, setListError] = useState('');
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [filter, setFilter] = useState(searchParams.get('filter') || '');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [counts, setCounts] = useState({});
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+
+  // Thread
+  const [activeId, setActiveId] = useState(null);
+  const [active, setActive] = useState(null); // { conversation, messages, insights, hasMoreMessages }
+  const [threadLoading, setThreadLoading] = useState(false);
+  const [olderLoading, setOlderLoading] = useState(false);
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [upload, setUpload] = useState(null); // { name, progress }
+  const [mediaOpen, setMediaOpen] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
+  const [lightbox, setLightbox] = useState(null);
+
+  const scrollRef = useRef(null);
+  const atBottomRef = useRef(true);
+  const activeIdRef = useRef(null);
+  const cursorRef = useRef(null);
+  const listReqRef = useRef(0);
+  const fileRef = useRef(null);
+  const filterRef = useRef(null);
+  activeIdRef.current = activeId;
+
+  /* ---------------- list ---------------- */
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
+  const fetchCounts = useCallback(() => {
+    conversationApi.counts().then((r) => setCounts(r.data.counts || {})).catch(() => {});
+  }, []);
+
+  const fetchList = useCallback(async ({ append = false } = {}) => {
+    const reqId = ++listReqRef.current;
+    if (append) setLoadingMore(true); else { setListLoading(true); setListError(''); }
+    try {
+      const res = await conversationApi.list({
+        limit: PAGE,
+        ...(filter ? { filter } : {}),
+        ...(search ? { search } : {}),
+        ...(append && cursorRef.current ? { before: cursorRef.current } : {}),
+      });
+      if (reqId !== listReqRef.current) return; // a newer request replaced this one
+      const rows = res.data.conversations || [];
+      setConversations((prev) => (append ? [...prev, ...rows.filter((r) => !prev.some((p) => p._id === r._id))] : rows));
+      cursorRef.current = res.data.nextCursor || null;
+      setHasMore(Boolean(res.data.hasMore));
+      if (res.data.counts?.unread != null) setCounts((c) => ({ ...c, unread: res.data.counts.unread }));
+    } catch (err) {
+      if (reqId === listReqRef.current) {
+        setListError(errText(err, 'Chats load nahi hui'));
+        if (!append) toast.error(errText(err, 'Chats load nahi hui'));
+      }
+    } finally {
+      if (reqId === listReqRef.current) { setListLoading(false); setLoadingMore(false); }
+    }
   }, [filter, search]);
 
+  // Reload from the top whenever filter/search changes.
   useEffect(() => {
+    cursorRef.current = null;
     fetchList();
   }, [fetchList]);
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
 
-  // On wide screens open the latest chat straight away so its summary is visible.
   useEffect(() => {
-    if (
-      activeId ||
-      !conversations.length ||
-      searchParams.get("id") ||
-      searchParams.get("lead")
-    )
-      return;
-    if (window.matchMedia("(min-width: 1280px)").matches)
-      openConversation(conversations[0]._id);
+    if (!filterOpen) return undefined;
+    const close = (e) => { if (!filterRef.current?.contains(e.target)) setFilterOpen(false); };
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, [filterOpen]);
+
+  const onListScroll = (e) => {
+    const el = e.currentTarget;
+    if (hasMore && !loadingMore && el.scrollTop + el.clientHeight > el.scrollHeight - 200) fetchList({ append: true });
+  };
+
+  /* ---------------- thread ---------------- */
+  const scrollToBottom = (smooth = false) => {
+    const el = scrollRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  };
+
+  const openConversation = useCallback(async (id) => {
+    if (!id) return;
+    setActiveId(id);
+    setShowInfo(false);
+    setThreadLoading(true);
+    setActive((prev) => (prev?.conversation?._id === id ? prev : null));
+    try {
+      const res = await conversationApi.get(id, { limit: 40 });
+      if (activeIdRef.current !== id) return;
+      setActive({ ...res.data, messages: res.data.messages || [] });
+      atBottomRef.current = true;
+      requestAnimationFrame(() => scrollToBottom());
+      if (res.data.conversation.unreadCount > 0) {
+        conversationApi.markRead(id).catch(() => {});
+        setConversations((list) => list.map((c) => (c._id === id ? { ...c, unreadCount: 0 } : c)));
+        setCounts((c) => ({ ...c, unread: Math.max(0, (c.unread || 1) - 1) }));
+      }
+    } catch (err) {
+      showDialog({ title: 'Chat nahi khul paayi', message: errText(err), actionLabel: 'Dobara try karein', onAction: () => openConversation(id) });
+      setActiveId(null);
+    } finally {
+      setThreadLoading(false);
+    }
+  }, []);
+
+  // On wide screens open the newest chat straight away.
+  useEffect(() => {
+    if (activeId || !conversations.length || searchParams.get('id') || searchParams.get('lead')) return;
+    if (window.matchMedia('(min-width: 1024px)').matches) openConversation(conversations[0]._id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversations]);
 
-  const openConversation = async (id) => {
-    setActiveId(id);
-    const res = await conversationApi.get(id);
-    setActive(res.data);
-    if (res.data.conversation.unreadCount > 0) {
-      await conversationApi.markRead(id);
-      fetchList();
-    }
-  };
-
-  // Deep links: ?id=<conversationId> or ?lead=<leadId> (from Leads, Follow Ups, Site Visits)
+  // Deep links: ?id=<conversationId> or ?lead=<leadId>
   useEffect(() => {
-    const id = searchParams.get("id");
-    const leadId = searchParams.get("lead");
+    const id = searchParams.get('id');
+    const leadId = searchParams.get('lead');
     if (!id && !leadId) return;
     (async () => {
       try {
@@ -784,6 +258,7 @@ export default function ConversationsPage() {
           const res = await conversationApi.list({ leadId, limit: 1 });
           const match = res.data.conversations?.[0];
           if (match) await openConversation(match._id);
+          else toast.info('Is lead ki WhatsApp chat abhi shuru nahi hui.');
         }
       } finally {
         setSearchParams({}, { replace: true });
@@ -792,349 +267,379 @@ export default function ConversationsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [active?.messages]);
+  const loadOlder = async () => {
+    if (!active?.messages?.length || olderLoading) return;
+    const el = scrollRef.current;
+    const prevHeight = el?.scrollHeight || 0;
+    setOlderLoading(true);
+    try {
+      const oldest = active.messages[0];
+      const res = await conversationApi.get(active.conversation._id, { before: oldest.timestamp || oldest.createdAt, limit: 40 });
+      setActive((p) => (p ? { ...p, messages: [...(res.data.messages || []), ...p.messages], hasMoreMessages: res.data.hasMoreMessages } : p));
+      requestAnimationFrame(() => { if (el) el.scrollTop = el.scrollHeight - prevHeight; });
+    } catch (err) {
+      toast.error(errText(err, 'Purane messages load nahi hue'));
+    } finally {
+      setOlderLoading(false);
+    }
+  };
 
-  // Real-time: new messages push into the open thread + refresh the list order/unread badges
+  const onThreadScroll = (e) => {
+    const el = e.currentTarget;
+    atBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (el.scrollTop < 60 && active?.hasMoreMessages && !olderLoading) loadOlder();
+  };
+
+  useLayoutEffect(() => {
+    if (atBottomRef.current) scrollToBottom(true);
+  }, [active?.messages?.length]);
+
+  /* ---------------- realtime ---------------- */
   useEffect(() => {
     const socket = getSocket();
-    const onNewMessage = ({ conversationId, message }) => {
-      fetchList();
-      if (conversationId === activeId) {
-        setActive((prev) =>
-          prev ? { ...prev, messages: [...prev.messages, message] } : prev,
-        );
+    const onNewMessage = (payload) => {
+      const { conversationId, message, preview } = payload || {};
+      if (!conversationId || !message) return;
+      const isOpen = conversationId === activeIdRef.current;
+      const inbound = message.direction === 'inbound';
+
+      setConversations((list) => {
+        const idx = list.findIndex((c) => c._id === conversationId);
+        if (idx === -1) {
+          // New chat (or not loaded yet) → refresh the top of the list.
+          setTimeout(() => fetchList(), 0);
+          return list;
+        }
+        const row = {
+          ...list[idx],
+          lastMessageAt: message.timestamp || new Date().toISOString(),
+          lastMessagePreview: preview || message.text,
+          lastMessageDirection: message.direction,
+          lastMessageSender: message.sender,
+          ...(inbound ? { lastInboundAt: message.timestamp, windowOpen: true } : {}),
+          unreadCount: inbound && !isOpen ? (list[idx].unreadCount || 0) + 1 : isOpen ? 0 : list[idx].unreadCount,
+        };
+        return [row, ...list.slice(0, idx), ...list.slice(idx + 1)];
+      });
+
+      if (isOpen) {
+        setActive((prev) => (prev ? {
+          ...prev,
+          conversation: inbound ? { ...prev.conversation, lastInboundAt: message.timestamp, windowOpen: true } : prev.conversation,
+          messages: mergeMessages(prev.messages, [message]),
+        } : prev));
+        if (inbound) conversationApi.markRead(conversationId).catch(() => {});
+      } else if (inbound) {
+        setCounts((c) => ({ ...c, unread: (c.unread || 0) + 1 }));
       }
     };
-    // AI hit its per-contact reply cap: show the upgrade prompt instantly.
-    const onAiLimit = ({
-      conversationId,
-      limit,
-      replies,
-      reached,
-      planName,
-    }) => {
-      fetchList();
-      if (conversationId === activeId) {
-        setActive((prev) =>
-          prev
-            ? {
-                ...prev,
-                conversation: {
-                  ...prev.conversation,
-                  aiLimit: { limit, replies, reached, planName },
-                },
-              }
-            : prev,
-        );
+    const onAiLimit = ({ conversationId, limit, replies, reached, planName }) => {
+      if (conversationId === activeIdRef.current) {
+        setActive((prev) => (prev ? { ...prev, conversation: { ...prev.conversation, aiLimit: { limit, replies, reached, planName } } } : prev));
       }
     };
-    socket.on("conversation:newMessage", onNewMessage);
-    socket.on("conversation:aiLimit", onAiLimit);
+    const onScored = ({ leadId, score, level }) => {
+      setConversations((list) => list.map((c) => (String(c.leadId?._id) === String(leadId) ? { ...c, currentLeadScore: score, leadId: { ...c.leadId, leadScore: score, status: ['site_visit', 'closed', 'lost'].includes(c.leadId?.status) ? c.leadId.status : level } } : c)));
+    };
+    const onReconnect = () => { fetchList(); fetchCounts(); if (activeIdRef.current) openConversation(activeIdRef.current); };
+    socket.on('conversation:newMessage', onNewMessage);
+    socket.on('conversation:aiLimit', onAiLimit);
+    socket.on('lead:scored', onScored);
+    socket.io.on('reconnect', onReconnect);
     return () => {
-      socket.off("conversation:newMessage", onNewMessage);
-      socket.off("conversation:aiLimit", onAiLimit);
+      socket.off('conversation:newMessage', onNewMessage);
+      socket.off('conversation:aiLimit', onAiLimit);
+      socket.off('lead:scored', onScored);
+      socket.io.off('reconnect', onReconnect);
     };
-  }, [activeId, fetchList]);
+  }, [fetchList, fetchCounts, openConversation]);
+
+  /* ---------------- actions ---------------- */
+  const sendFailed = (err) => {
+    const code = err?.response?.data?.details?.code;
+    if (code === 'WHATSAPP_24H_WINDOW_CLOSED') {
+      showDialog({
+        tone: 'warning',
+        title: '24 ghante wala WhatsApp window band hai',
+        message: 'WhatsApp ke rule ke hisaab se, customer ne pichhle 24 ghante mein message nahi kiya to seedha message nahi ja sakta.\n\nCampaign se ek approved template bhejiye — customer jaise hi reply karega, aap yahan se baat kar payenge.',
+        actionLabel: 'Template bhejein',
+        onAction: () => navigate('/outreach/whatsapp?new=1'),
+      });
+    } else {
+      showDialog({ title: 'Message nahi gaya', message: errText(err) });
+    }
+  };
 
   const handleSend = async (e) => {
-    e.preventDefault();
-    if (!text.trim()) return;
+    e?.preventDefault();
+    const body = text.trim();
+    if (!body || sending || !activeId) return;
     setSending(true);
     try {
-      await conversationApi.sendMessage(activeId, text.trim());
-      setText("");
+      const res = await conversationApi.sendMessage(activeId, body);
+      setText('');
+      atBottomRef.current = true;
+      if (res.data?.message) setActive((p) => (p ? { ...p, messages: mergeMessages(p.messages, [res.data.message]) } : p));
+    } catch (err) {
+      sendFailed(err);
     } finally {
       setSending(false);
     }
   };
 
-  const toggleAI = async () => {
-    if (active.conversation.status === "manual") {
-      const res = await conversationApi.resumeAI(activeId);
-      setActive((p) => ({
-        ...p,
-        conversation: {
-          ...res.data.conversation,
-          aiLimit: p.conversation?.aiLimit,
-        },
-      }));
-    } else {
-      const res = await conversationApi.takeover(activeId);
-      setActive((p) => ({
-        ...p,
-        conversation: {
-          ...res.data.conversation,
-          aiLimit: p.conversation?.aiLimit,
-        },
-      }));
+  const handleFile = async (file) => {
+    if (!file || !activeId) return;
+    if (file.size > 100 * 1024 * 1024) { showDialog({ title: 'File bahut badi hai', message: 'WhatsApp par 100 MB tak ki file hi ja sakti hai (photo 5 MB, video 16 MB).' }); return; }
+    const caption = text.trim();
+    setUpload({ name: file.name, progress: 0 });
+    try {
+      const res = await conversationApi.sendMedia(activeId, file, caption, (progress) => setUpload({ name: file.name, progress }));
+      if (caption) setText('');
+      atBottomRef.current = true;
+      if (res.data?.message) setActive((p) => (p ? { ...p, messages: mergeMessages(p.messages, [res.data.message]) } : p));
+      toast.success('File bhej di gayi');
+    } catch (err) {
+      sendFailed(err);
+    } finally {
+      setUpload(null);
+      if (fileRef.current) fileRef.current.value = '';
     }
-    fetchList();
+  };
+
+  const updateConversation = (conversation) => {
+    setActive((p) => (p ? { ...p, conversation: { ...p.conversation, ...conversation, leadId: p.conversation.leadId, aiLimit: p.conversation.aiLimit, windowOpen: p.conversation.windowOpen, recommendedProperties: p.conversation.recommendedProperties } } : p));
+    setConversations((list) => list.map((c) => (c._id === conversation._id ? { ...c, status: conversation.status } : c)));
+  };
+
+  const toggleAI = async () => {
+    try {
+      const res = active.conversation.status === 'manual' ? await conversationApi.resumeAI(activeId) : await conversationApi.takeover(activeId);
+      updateConversation(res.data.conversation);
+      toast.success(res.message || 'Ho gaya');
+    } catch (err) {
+      toast.error(errText(err));
+    }
   };
 
   const handleClose = async () => {
-    if (!confirm("Close this conversation?")) return;
-    const res = await conversationApi.close(activeId);
-    setActive((p) => ({
-      ...p,
-      conversation: {
-        ...res.data.conversation,
-        aiLimit: p.conversation?.aiLimit,
-      },
-    }));
-    fetchList();
+    const closed = active.conversation.status === 'closed';
+    if (!closed && !window.confirm('Ye chat close karein? AI is customer ko reply nahi karega.')) return;
+    try {
+      const res = closed ? await conversationApi.reopen(activeId) : await conversationApi.close(activeId);
+      updateConversation(res.data.conversation);
+      toast.success(res.message || 'Ho gaya');
+    } catch (err) {
+      toast.error(errText(err));
+    }
   };
 
+  /* ---------------- render helpers ---------------- */
+  const grouped = useMemo(() => {
+    const out = [];
+    let lastDay = '';
+    for (const m of active?.messages || []) {
+      const day = new Date(m.timestamp || m.createdAt).toDateString();
+      if (day !== lastDay) { out.push({ divider: true, key: `d-${day}`, label: dayLabel(m.timestamp || m.createdAt) }); lastDay = day; }
+      out.push(m);
+    }
+    return out;
+  }, [active?.messages]);
+
+  const currentFilter = FILTERS.find((f) => f.key === filter) || FILTERS[0];
+  const conv = active?.conversation;
+  const lead = conv?.leadId || {};
+  const windowOpen = conv ? (conv.windowOpen ?? Boolean(conv.lastInboundAt && Date.now() - new Date(conv.lastInboundAt).getTime() < 86400000)) : false;
+  const showThreadOnMobile = Boolean(activeId);
+
   return (
-    <div className="flex h-[calc(100vh-8rem)] gap-4">
-      {/* Left: conversation list */}
-      <div className="flex w-full max-w-xs flex-shrink-0 flex-col rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
-        <div className="border-b border-ink-100 p-3 dark:border-ink-800">
-          <div className="relative">
-            <Search
-              className="absolute left-2.5 top-2.5 text-ink-400"
-              size={16}
-            />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search name or phone…"
-              className="w-full rounded-lg border border-ink-200 py-2 pl-8 pr-2 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
-            />
+    <div className="flex h-[calc(100vh-8.5rem)] min-h-[520px] gap-4">
+      {/* ---------- Left: list ---------- */}
+      <div className={`${showThreadOnMobile ? 'hidden lg:flex' : 'flex'} w-full flex-shrink-0 flex-col overflow-hidden rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900 lg:w-[340px]`}>
+        <div className="space-y-2 border-b border-ink-100 p-3 dark:border-ink-800">
+          <div className="flex items-center justify-between">
+            <h1 className="font-display text-lg font-bold text-ink-900 dark:text-white">AI Inbox</h1>
+            <button type="button" onClick={() => { cursorRef.current = null; fetchList(); fetchCounts(); }} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Refresh"><RefreshCw size={15} className={listLoading ? 'animate-spin' : ''} /></button>
           </div>
-          <div className="mt-2 flex flex-wrap gap-1">
-            <button
-              onClick={() => setFilter("")}
-              className={`rounded-full px-2 py-1 text-xs ${!filter ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300"}`}
-            >
-              All
-            </button>
-            {FILTERS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                className={`rounded-full px-2 py-1 text-xs capitalize ${filter === f ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300"}`}
-              >
-                {f.replace("_", " ")}
+          <div className="flex gap-2">
+            <div className="relative flex-1">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" size={15} />
+              <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Naam, number ya message…" className="w-full rounded-lg border border-ink-200 py-2 pl-8 pr-7 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white" />
+              {searchInput && <button type="button" onClick={() => setSearchInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Clear search"><X size={14} /></button>}
+            </div>
+            <div className="relative" ref={filterRef}>
+              <button type="button" onClick={() => { setFilterOpen((v) => !v); if (!filterOpen) fetchCounts(); }} className={`flex h-full items-center gap-1.5 rounded-lg border px-3 text-sm font-semibold ${filter ? 'border-brand-600 bg-brand-600 text-white' : 'border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800'}`} aria-haspopup="menu" aria-expanded={filterOpen}>
+                <Filter size={15} /> Filter{counts.unread > 0 && !filter && <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">{counts.unread}</span>}
               </button>
-            ))}
+              {filterOpen && (
+                <div role="menu" className="absolute right-0 z-30 mt-1 w-64 overflow-hidden rounded-xl border border-ink-100 bg-white py-1 shadow-xl dark:border-ink-700 dark:bg-ink-900">
+                  {FILTERS.map((f) => (
+                    <button key={f.key || 'all'} role="menuitemradio" aria-checked={filter === f.key} type="button" onClick={() => { setFilter(f.key); setFilterOpen(false); }} className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm hover:bg-ink-50 dark:hover:bg-ink-800 ${filter === f.key ? 'font-semibold text-brand-700 dark:text-brand-300' : 'text-ink-700 dark:text-ink-200'}`}>
+                      <span className="flex items-center gap-2">{filter === f.key ? <Check size={14} /> : <span className="w-[14px]" />}{f.label}</span>
+                      {counts[f.key || 'all'] != null && <span className="rounded-full bg-ink-100 px-2 text-[11px] font-semibold text-ink-600 dark:bg-ink-800 dark:text-ink-300">{counts[f.key || 'all']}</span>}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+          {filter && (
+            <div className="flex items-center gap-2 text-xs">
+              <span className="text-ink-500">Filter:</span>
+              <button type="button" onClick={() => setFilter('')} className="inline-flex items-center gap-1 rounded-full bg-brand-50 px-2.5 py-1 font-semibold text-brand-700 dark:bg-brand-900/30 dark:text-brand-200">{currentFilter.label} <X size={12} /></button>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          {conversations.map((c) => {
-            const tag = sourceTag(c.leadId?.source);
-            const type = leadTypeOf(c);
+        <div className="flex-1 overflow-y-auto" onScroll={onListScroll}>
+          {listLoading && !conversations.length ? <SkeletonRows rows={8} /> : listError && !conversations.length ? (
+            <EmptyState icon={AlertTriangle} title="Chats load nahi hui" action={<button type="button" className="btn-secondary" onClick={() => fetchList()}>Dobara try karein</button>}>{listError}</EmptyState>
+          ) : !conversations.length ? (
+            <EmptyState icon={MessagesSquare} title={filter || search ? 'Is filter mein koi chat nahi' : 'Abhi koi chat nahi'}>
+              {filter || search ? 'Filter hata kar dekhein.' : 'Jaise hi koi customer WhatsApp par reply karega ya campaign jayega, chat yahan dikhegi.'}
+            </EmptyState>
+          ) : conversations.map((c) => {
+            const l = c.leadId || {};
+            const type = leadTypeOf(l, Number(l.leadScore ?? c.currentLeadScore ?? 0));
+            const unread = c.unreadCount > 0;
             return (
-              <button
-                key={c._id}
-                onClick={() => openConversation(c._id)}
-                className={`flex w-full flex-col gap-1 border-b border-ink-50 px-3 py-3 text-left dark:border-ink-800 ${activeId === c._id ? "bg-brand-50 dark:bg-ink-800" : "hover:bg-ink-50 dark:hover:bg-ink-800/50"}`}
-              >
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-ink-900 dark:text-white">
-                    {c.leadId?.name || "Unknown"}
+              <button key={c._id} type="button" onClick={() => openConversation(c._id)} className={`flex w-full gap-3 border-b border-ink-50 px-3 py-3 text-left transition dark:border-ink-800 ${activeId === c._id ? 'bg-brand-50 dark:bg-ink-800' : 'hover:bg-ink-50 dark:hover:bg-ink-800/50'}`}>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200">{(l.name || '?').trim().charAt(0).toUpperCase()}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center justify-between gap-2">
+                    <span className={`truncate text-sm ${unread ? 'font-bold text-ink-900 dark:text-white' : 'font-semibold text-ink-800 dark:text-ink-100'}`}>{l.name || l.phone || 'Unknown'}</span>
+                    <span className={`shrink-0 text-[11px] ${unread ? 'font-bold text-emerald-600' : 'text-ink-400'}`}>{timeLabel(c.lastMessageAt)}</span>
                   </span>
-                  {c.unreadCount > 0 && (
-                    <span className="rounded-full bg-brand-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                      {c.unreadCount}
+                  <span className="mt-0.5 flex items-center justify-between gap-2">
+                    <span className={`truncate text-xs ${unread ? 'font-semibold text-ink-700 dark:text-ink-200' : 'text-ink-500 dark:text-ink-400'}`}>
+                      {c.lastMessageDirection === 'outbound' && <span className="text-ink-400">{c.lastMessageSender === 'ai' ? 'AI: ' : 'Aap: '}</span>}
+                      {c.lastMessagePreview || l.phone}
                     </span>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-xs text-ink-500 dark:text-ink-400">
-                    {c.leadId?.phone}
+                    {unread && <span className="shrink-0 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{c.unreadCount}</span>}
                   </span>
-                  <span className="flex items-center gap-1">
-                    {c.aiLimit?.reached && (
-                      <span className="whitespace-nowrap rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">
-                        AI limit
-                      </span>
-                    )}
-                    {tag.label !== "Lead" && (
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tag.className}`}
-                      >
-                        <tag.Icon size={10} /> {tag.label}
-                      </span>
-                    )}
-                    <span
-                      className={`whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-semibold ${type.className}`}
-                    >
-                      {type.label} ·{" "}
-                      {Number(c.leadId?.leadScore ?? c.currentLeadScore ?? 0)}
-                    </span>
+                  <span className="mt-1 flex flex-wrap items-center gap-1">
+                    <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${type.className}`}>{type.label}</span>
+                    {l.source === 'whatsapp_inbound' && <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><MessageCircleMore size={10} /> Direct</span>}
+                    {c.status === 'manual' && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">AI band</span>}
+                    {c.optedOut && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">STOP</span>}
+                    {c.aiLimit?.reached && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">AI limit</span>}
                   </span>
-                </div>
+                </span>
               </button>
             );
           })}
-          {conversations.length === 0 && (
-            <p className="p-4 text-center text-sm text-ink-400">
-              Koi conversation nahi mili
-            </p>
-          )}
+          {loadingMore && <div className="flex justify-center py-3 text-ink-400"><Loader2 size={18} className="animate-spin" /></div>}
+          {hasMore && !loadingMore && conversations.length > 0 && <button type="button" onClick={() => fetchList({ append: true })} className="w-full py-3 text-xs font-semibold text-brand-600">Aur chats dikhayein</button>}
         </div>
       </div>
 
-      {/* Right: thread */}
-      <div className="flex flex-1 flex-col rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
-        {!active ? (
-          <div className="flex flex-1 items-center justify-center text-sm text-ink-400">
-            Ek conversation select karo
-          </div>
-        ) : (
+      {/* ---------- Middle: thread ---------- */}
+      <div className={`${showThreadOnMobile && !showInfo ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-ink-100 bg-[#f4f1ec] dark:border-ink-800 dark:bg-ink-950`}>
+        {!activeId ? (
+          <div className="flex flex-1 items-center justify-center p-6"><EmptyState icon={MessagesSquare} title="Ek chat chunein">Left side se kisi customer ki chat kholein.</EmptyState></div>
+        ) : threadLoading && !active ? (
+          <div className="flex-1 bg-white dark:bg-ink-900"><SkeletonRows rows={7} /></div>
+        ) : active && (
           <>
-            <div className="flex items-center justify-between border-b border-ink-100 p-3 dark:border-ink-800">
-              <div>
-                <div className="flex items-center gap-2">
-                  <p className="font-semibold text-ink-900 dark:text-white">
-                    {active.conversation.leadId?.name}
-                  </p>
-                  {(() => {
-                    const tag = sourceTag(active.conversation.leadId?.source);
-                    if (tag.label === "Lead") return null; // lead type is shown in the summary panel
-                    return (
-                      <span
-                        className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${tag.className}`}
-                      >
-                        <tag.Icon size={10} /> {tag.label}
-                      </span>
-                    );
-                  })()}
+            <div className="flex items-center justify-between gap-2 border-b border-ink-100 bg-white px-3 py-2.5 dark:border-ink-800 dark:bg-ink-900">
+              <div className="flex min-w-0 items-center gap-2">
+                <button type="button" className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 lg:hidden" onClick={() => setActiveId(null)} aria-label="Back to chats"><ArrowLeft size={18} /></button>
+                <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{(lead.name || '?').charAt(0).toUpperCase()}</span>
+                <div className="min-w-0">
+                  <p className="truncate font-semibold text-ink-900 dark:text-white">{lead.name || lead.phone}</p>
+                  <p className="truncate text-xs text-ink-500 dark:text-ink-400">{lead.phone} · {conv.status === 'manual' ? 'Aap reply kar rahe hain' : conv.status === 'closed' ? 'Chat closed' : conv.optedOut ? 'Customer ne STOP likha' : 'AI reply kar raha hai'}</p>
                 </div>
-                <p className="text-xs text-ink-500 dark:text-ink-400">
-                  {active.conversation.leadId?.phone}
-                </p>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={toggleAI}
-                  className="btn-secondary flex items-center gap-1.5 text-xs"
-                  title={
-                    active.conversation.status === "manual"
-                      ? "Resume AI"
-                      : "Take over chat"
-                  }
-                >
-                  {active.conversation.status === "manual" ? (
-                    <Bot size={14} />
-                  ) : (
-                    <UserCog size={14} />
-                  )}
-                  {active.conversation.status === "manual"
-                    ? "Resume AI"
-                    : "Take Over"}
+              <div className="flex shrink-0 items-center gap-1.5">
+                <button type="button" onClick={toggleAI} className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${conv.status === 'manual' ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200'}`} title={conv.status === 'manual' ? 'AI ko wapas chalu karein' : 'AI rok kar khud baat karein'}>
+                  {conv.status === 'manual' ? <Bot size={14} /> : <UserCog size={14} />}
+                  <span className="hidden sm:inline">{conv.status === 'manual' ? 'AI chalu karein' : 'Khud baat karein'}</span>
                 </button>
-                <button
-                  onClick={handleClose}
-                  className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800"
-                  title="Close conversation"
-                >
-                  <X size={16} />
-                </button>
+                <button type="button" onClick={() => setShowInfo(true)} className="rounded-lg p-2 text-ink-500 hover:bg-ink-100 xl:hidden dark:hover:bg-ink-800" aria-label="Lead details"><Info size={16} /></button>
+                <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" title={conv.status === 'closed' ? 'Chat dobara kholein' : 'Chat close karein'}>{conv.status === 'closed' ? 'Reopen' : <X size={16} />}</button>
               </div>
             </div>
 
-            {active.conversation.aiSummary && (
-              <div className="border-b border-ink-100 bg-ink-50 p-2.5 text-xs text-ink-600 dark:border-ink-800 dark:bg-ink-800/50 dark:text-ink-300 xl:hidden">
-                <span className="font-semibold">AI Summary: </span>
-                {active.conversation.aiSummary}
+            <div ref={scrollRef} onScroll={onThreadScroll} className="flex-1 space-y-2 overflow-y-auto px-3 py-4 sm:px-5">
+              {active.hasMoreMessages && (
+                <div className="flex justify-center">
+                  <button type="button" onClick={loadOlder} disabled={olderLoading} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink-600 shadow-sm dark:bg-ink-800 dark:text-ink-200">{olderLoading ? <Loader2 size={13} className="inline animate-spin" /> : 'Purane messages dekhein'}</button>
+                </div>
+              )}
+              {!active.messages.length && <p className="py-10 text-center text-sm text-ink-500">Abhi koi message nahi.</p>}
+              {grouped.map((item) => (item.divider ? (
+                <div key={item.key} className="flex justify-center py-1"><span className="rounded-full bg-white/80 px-3 py-0.5 text-[11px] font-semibold text-ink-500 shadow-sm dark:bg-ink-800 dark:text-ink-300">{item.label}</span></div>
+              ) : (
+                <MessageBubble key={item._id} conversationId={conv._id} message={item} onOpenImage={setLightbox} />
+              )))}
+            </div>
+
+            {conv.aiLimit?.reached && (
+              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
+                <p className="flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" /><span><b>AI reply limit poori ({conv.aiLimit.replies}/{conv.aiLimit.limit}).</b> Ab aap khud reply karein ya plan upgrade karein.</span></p>
+                {role === 'owner' && <button type="button" onClick={() => navigate('/billing')} className="btn-primary whitespace-nowrap !py-1.5 text-xs">Upgrade</button>}
               </div>
             )}
 
-            <div className="flex-1 space-y-3 overflow-y-auto p-4">
-              {active.messages.map((m) => (
-                <div
-                  key={m._id}
-                  className={`flex ${m.sender === "customer" ? "justify-start" : "justify-end"}`}
-                >
-                  <div
-                    className={`max-w-[70%] rounded-2xl px-3.5 py-2 text-sm ${
-                      m.sender === "customer"
-                        ? "bg-ink-100 text-ink-900 dark:bg-ink-800 dark:text-white"
-                        : m.sender === "ai"
-                          ? "bg-brand-100 text-brand-900 dark:bg-brand-900/40 dark:text-brand-100"
-                          : "bg-brand-600 text-white"
-                    }`}
-                  >
-                    <p className="whitespace-pre-wrap break-words">
-                      <Formatted text={m.text} />
-                    </p>
-                    <div className="mt-1 flex items-center gap-1 text-[10px] opacity-70">
-                      {m.sender !== "customer" && <CheckCheck size={11} />}
-                      {new Date(m.timestamp).toLocaleTimeString([], {
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                      {m.sender === "ai" && (
-                        <span className="ml-1">· AI bot</span>
-                      )}
-                      {m.sender === "broker" && (
-                        <span className="ml-1">· Aap</span>
-                      )}
-                    </div>
+            {!windowOpen ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 bg-white px-4 py-3 text-sm dark:border-ink-800 dark:bg-ink-900">
+                <p className="flex items-start gap-2 text-ink-600 dark:text-ink-300"><Lock size={15} className="mt-0.5 shrink-0" /> Customer ne 24 ghante se reply nahi kiya — WhatsApp rule ke hisaab se ab sirf approved template ja sakta hai.</p>
+                <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => navigate('/outreach/whatsapp?new=1')}>Template bhejein</button>
+              </div>
+            ) : (
+              <form onSubmit={handleSend} className="border-t border-ink-100 bg-white p-2.5 dark:border-ink-800 dark:bg-ink-900">
+                {upload && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-600 dark:bg-ink-800 dark:text-ink-300">
+                    <Loader2 size={14} className="animate-spin" /> <span className="truncate">{upload.name}</span>
+                    <span className="ml-auto font-semibold">{upload.progress}%</span>
                   </div>
-                </div>
-              ))}
-              <div ref={bottomRef} />
-            </div>
-
-            {active.conversation.aiLimit?.reached && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle size={17} className="mt-0.5 shrink-0" />
-                  <p>
-                    <span className="font-semibold">
-                      AI reply limit poori ho gayi (
-                      {active.conversation.aiLimit.replies}/
-                      {active.conversation.aiLimit.limit}).
-                    </span>{" "}
-                    Is contact ko AI ab reply nahi karega. Aap neeche se khud
-                    reply kar sakte hain, ya plan upgrade karke AI chalu
-                    rakhein.
-                  </p>
-                </div>
-                {role === "owner" ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate("/billing")}
-                    className="btn-primary whitespace-nowrap text-xs"
-                  >
-                    Upgrade plan
-                  </button>
-                ) : (
-                  <span className="text-xs opacity-80">
-                    Upgrade ke liye company owner se kahiye
-                  </span>
                 )}
-              </div>
+                <div className="flex items-end gap-2">
+                  <input ref={fileRef} type="file" className="hidden" accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" onChange={(e) => handleFile(e.target.files?.[0])} />
+                  <button type="button" disabled={!!upload} onClick={() => fileRef.current?.click()} className="rounded-lg p-2.5 text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" title="Photo, video ya PDF bhejein" aria-label="Attach file"><Paperclip size={18} /></button>
+                  <button type="button" disabled={!!upload} onClick={() => setMediaOpen(true)} className="hidden rounded-lg px-2.5 py-2.5 text-xs font-semibold text-ink-600 hover:bg-ink-100 sm:block dark:text-ink-300 dark:hover:bg-ink-800" title="Property ka brochure / photos">
+                    <FileText size={16} className="inline" /> Brochure <ChevronDown size={12} className="inline" />
+                  </button>
+                  <textarea
+                    value={text}
+                    onChange={(e) => setText(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                    rows={1}
+                    placeholder={conv.status === 'manual' ? 'Message likhein…' : 'Message likhein (AI bhi chalu hai)…'}
+                    className="max-h-32 min-h-[42px] flex-1 resize-none rounded-xl border border-ink-200 px-3 py-2.5 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
+                  />
+                  <button type="submit" disabled={sending || !text.trim()} className="btn-primary flex h-[42px] w-[42px] items-center justify-center !p-0 disabled:opacity-50" aria-label="Send">
+                    {sending ? <Loader2 size={17} className="animate-spin" /> : <Send size={17} />}
+                  </button>
+                </div>
+              </form>
             )}
-
-            <form
-              onSubmit={handleSend}
-              className="flex gap-2 border-t border-ink-100 p-3 dark:border-ink-800"
-            >
-              <input
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                placeholder="Type a message…"
-                className="flex-1 rounded-lg border border-ink-200 px-3 py-2 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
-              />
-              <button
-                type="submit"
-                disabled={sending}
-                className="btn-primary flex items-center gap-1.5"
-              >
-                <Send size={16} />
-              </button>
-            </form>
           </>
         )}
       </div>
 
-      {active && <SummaryPanel active={active} />}
+      {/* ---------- Right: lead insights ---------- */}
+      {active && activeId && (
+        <>
+          <InsightsPanel active={active} className="hidden xl:flex" />
+          {showInfo && (
+            <div className="fixed inset-0 z-40 flex justify-end bg-black/40 xl:hidden" onMouseDown={(e) => e.target === e.currentTarget && setShowInfo(false)}>
+              <div className="h-full w-full max-w-sm overflow-y-auto bg-ink-50 p-3 dark:bg-ink-950">
+                <button type="button" onClick={() => setShowInfo(false)} className="mb-2 flex items-center gap-1 text-sm font-semibold text-ink-600"><ArrowLeft size={16} /> Chat par wapas</button>
+                <InsightsPanel active={active} />
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <PropertyMediaModal open={mediaOpen} onClose={() => setMediaOpen(false)} conversation={conv} onSent={(msgs) => setActive((p) => (p ? { ...p, messages: mergeMessages(p.messages, msgs) } : p))} />
+
+      {lightbox && (
+        <div className="fixed inset-0 z-[95] flex items-center justify-center bg-black/85 p-4" onClick={() => setLightbox(null)}>
+          <img src={lightbox} alt="" className="max-h-full max-w-full rounded-lg object-contain" />
+          <button type="button" className="absolute right-4 top-4 rounded-full bg-white/20 p-2 text-white" aria-label="Close"><X size={20} /></button>
+        </div>
+      )}
     </div>
   );
 }

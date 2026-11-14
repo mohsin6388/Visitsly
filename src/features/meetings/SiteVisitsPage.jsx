@@ -1,10 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, MapPin, Trash2, CalendarClock, CheckCircle2, AlertCircle, XCircle, Loader2, MessageSquare, Bot, CalendarDays } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Plus, MapPin, Trash2, CalendarClock, CheckCircle2, AlertCircle, Loader2, MessageSquare, CalendarDays } from 'lucide-react';
+import ChatPopup from '../../components/ChatPopup.jsx';
 import { meetingApi } from '../../api/meetingApi.js';
 import ScheduleVisitModal from './ScheduleVisitModal.jsx';
 
 const STATUSES = ['scheduled', 'visited', 'not_visited', 'rescheduled', 'cancelled'];
+const STATUS_LABEL = { scheduled: 'Baki hai', visited: 'Aa gaye', not_visited: 'Nahi aaye', rescheduled: 'Date badli', cancelled: 'Cancel' };
 
 const STATUS_COLORS = {
   scheduled: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
@@ -15,14 +16,13 @@ const STATUS_COLORS = {
 };
 
 const WHEN_TABS = [
-  { key: 'upcoming', label: 'Aane wali' },
   { key: 'today', label: 'Aaj' },
+  { key: 'upcoming', label: 'Aane wali' },
   { key: 'past', label: 'Ho chuki' },
-  { key: '', label: 'Sab' },
 ];
 
 export default function SiteVisitsPage() {
-  const navigate = useNavigate();
+  const [chat, setChat] = useState(null);
   const [meetings, setMeetings] = useState([]);
   const [status, setStatus] = useState('');
   const [when, setWhen] = useState('upcoming');
@@ -67,20 +67,18 @@ export default function SiteVisitsPage() {
   return (
     <div>
       <div className="flex items-center justify-between">
-        <div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Site Visits</h1><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">WhatsApp chat mein jo visit final hoti hai, wo yahan apne-aap save hoti hai.</p></div>
+        <div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Site Visits</h1><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Jo bhi visit book hogi (WhatsApp chat se ya aapne khud), yahan dikhegi.</p></div>
         <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Schedule Visit
+          <Plus size={16} /> Visit add karein
         </button>
       </div>
 
-      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-6">
+      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          ['Aaj ki visits', summary.today, CalendarDays, 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'],
+          ['Aaj', summary.today, CalendarDays, 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'],
           ['Aane wali', summary.upcoming, CalendarClock, 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300'],
-          ['Chat se booked', summary.chatBooked, Bot, 'bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300'],
-          ['Visited', summary.visited, CheckCircle2, 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-300'],
-          ['Not visited', summary.notVisited, AlertCircle, 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'],
-          ['Cancelled', summary.cancelled, XCircle, 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-300'],
+          ['Aa gaye', summary.visited, CheckCircle2, 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-300'],
+          ['Nahi aaye', summary.notVisited, AlertCircle, 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'],
         ].map(([label, value, Icon, tone]) => <div key={label} className="card !p-3"><div className="flex items-center gap-2"><span className={`flex h-8 w-8 items-center justify-center rounded-lg ${tone}`}><Icon size={16}/></span><div><p className="text-[11px] text-ink-500 dark:text-ink-400">{label}</p><p className="text-lg font-bold text-ink-900 dark:text-white">{Number(value || 0).toLocaleString('en-IN')}</p></div></div></div>)}
       </div>
 
@@ -92,23 +90,12 @@ export default function SiteVisitsPage() {
             <button key={tab.key || 'all'} role="tab" aria-selected={when === tab.key} onClick={() => { setWhen(tab.key); setPage(1); }} className={`rounded-full px-3 py-1.5 text-xs font-medium ${when === tab.key ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'}`}>{tab.label}</button>
           ))}
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <select aria-label="Booked by" value={source} onChange={(e) => { setSource(e.target.value); setPage(1); }} className="rounded-lg border border-ink-200 px-2 py-1.5 text-xs dark:border-ink-700 dark:bg-ink-800 dark:text-white">
-            <option value="">Sab bookings</option>
-            <option value="whatsapp_ai">Chat se booked (AI)</option>
-            <option value="manual">Manually added</option>
-          </select>
-          <select aria-label="Status" value={status} onChange={(e) => { setStatus(e.target.value); setPage(1); }} className="rounded-lg border border-ink-200 px-2 py-1.5 text-xs dark:border-ink-700 dark:bg-ink-800 dark:text-white">
-            <option value="">Sab status</option>
-            {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
-          </select>
-        </div>
       </div>
 
       <div className="card mt-4 divide-y divide-ink-50 p-0 dark:divide-ink-800">
         {loading && <div className="p-6 text-center text-sm text-ink-400"><Loader2 className="mx-auto animate-spin" size={22}/><p className="mt-2">Loading site visits…</p></div>}
         {!loading && meetings.length === 0 && (
-          <p className="p-6 text-center text-sm text-ink-400">Is filter mein koi site visit nahi hai. WhatsApp par visit final hote hi yahan aa jayegi.</p>
+          <p className="p-6 text-center text-sm text-ink-400">Is tab mein koi site visit nahi hai. Visit book hote hi yahan dikhegi.</p>
         )}
         {meetings.map((m) => (
           <div key={m._id} className="flex items-center justify-between gap-3 p-4">
@@ -116,9 +103,12 @@ export default function SiteVisitsPage() {
               <div className="flex items-center gap-2">
                 <span className="font-medium text-ink-900 dark:text-white">{m.leadId?.name}</span>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${STATUS_COLORS[m.status]}`}>
-                  {m.status.replace('_', ' ')}
+                  {STATUS_LABEL[m.status] || m.status}
                 </span>
-                {m.source === 'whatsapp_ai' ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><Bot size={10} /> WhatsApp AI ne book ki</span> : m.source === 'manual' ? <span className="rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-semibold text-ink-600 dark:bg-ink-800 dark:text-ink-300">Manual</span> : null}
+                {m.confirmation?.status === 'confirmed' && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">Aa rahe hain ✓</span>}
+                {m.confirmation?.status === 'declined' && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Nahi aa rahe</span>}
+                {m.confirmation?.status === 'pending' && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Jawab ka wait</span>}
+                {m.source === 'whatsapp_ai' && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Chat se book hui</span>}
               </div>
               <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
                 {[m.leadId?.phone, m.leadId?.email].filter(Boolean).join(' · ') || 'No phone/email'} · {m.preferredDate} at {m.preferredTime}
@@ -133,13 +123,13 @@ export default function SiteVisitsPage() {
             </div>
 
             <div className="flex flex-shrink-0 items-center gap-2">
-              {m.conversationId && <button onClick={() => navigate(`/whatsapp/conversations?id=${m.conversationId}`)} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-200"><MessageSquare size={13} /> Chat</button>}
+              {m.conversationId && <button onClick={() => setChat(m)} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-200"><MessageSquare size={13} /> Chat</button>}
               <select aria-label="Visit status"
                 value={m.status}
                 onChange={(e) => handleStatusChange(m._id, e.target.value)}
                 className="rounded-lg border border-ink-200 px-2 py-1 text-xs dark:border-ink-700 dark:bg-ink-800 dark:text-white"
               >
-                {STATUSES.map((s) => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+                {STATUSES.map((s) => <option key={s} value={s}>{STATUS_LABEL[s]}</option>)}
               </select>
               <button onClick={() => handleDelete(m._id)} className="rounded-lg p-2 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20">
                 <Trash2 size={15} />
@@ -160,6 +150,7 @@ export default function SiteVisitsPage() {
         </div>
       )}
 
+      {chat && <ChatPopup conversationId={chat.conversationId} leadId={chat.leadId?._id} name={chat.leadId?.name} onClose={() => setChat(null)} />}
       {showModal && <ScheduleVisitModal onClose={() => setShowModal(false)} onSaved={fetchList} />}
     </div>
   );

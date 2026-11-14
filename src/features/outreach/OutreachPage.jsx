@@ -1,49 +1,48 @@
-import { useState, useMemo, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useQuery, useQueryClient, keepPreviousData } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { MessageCircle, Mail, Loader2, Send, CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { MessageCircle, Mail, Loader2, Send, CheckCircle2, Clock, XCircle, ChevronLeft, ChevronRight, Search, X, Rocket, AlertTriangle, RefreshCw } from 'lucide-react';
 import { outreachApi, campaignApi } from '../../api/outreachApi.js';
 import { useOutreachEvents, useOutreachSummaryQuery, SUMMARY_KEY } from '../../hooks/useOutreachLive.js';
 import StatusChip, { fmtDateTime } from './StatusChip.jsx';
 import CampaignCard from './CampaignCard.jsx';
 import CampaignLauncher from './CampaignLauncher.jsx';
+import { Skeleton, EmptyState, toast, showDialog } from '../../components/ui/index.jsx';
+import { errText } from '../../lib/saas.jsx';
 
 const CAMPAIGNS_KEY = ['outreach', 'campaigns'];
 
 const CHANNEL_META = {
-  whatsapp: {
-    title: 'WhatsApp Bulk Messages',
-    subtitle: 'Approved Meta templates ke saath queued sending aur live progress.',
-    icon: MessageCircle,
-    contact: (j) => j.phone,
-  },
-  email: {
-    title: 'Bulk Email',
-    subtitle: 'Brevo API se queued email campaigns aur live delivery status.',
-    icon: Mail,
-    contact: (j) => j.email || '—',
-  },
+  whatsapp: { title: 'WhatsApp Campaigns', subtitle: 'Approved template se bulk message — har contact ka live status.', icon: MessageCircle, contact: (j) => j.phone },
+  email: { title: 'Email Campaigns', subtitle: 'Bulk email — har contact ka live delivery status.', icon: Mail, contact: (j) => j.email || '—' },
 };
 
-const FILTERS = [
-  { value: '', label: 'All' },
-  { value: 'sent', label: 'Sent' },
-  { value: 'processing', label: 'Sending' },
-  { value: 'pending', label: 'In queue' },
+const CAMPAIGN_TABS = [
+  { value: '', label: 'Sab' },
+  { value: 'running', label: 'Chal rahe' },
   { value: 'scheduled', label: 'Scheduled' },
-  { value: 'failed', label: 'Failed' },
+  { value: 'paused', label: 'Paused' },
+  { value: 'completed', label: 'Poore' },
+  { value: 'cancelled', label: 'Cancelled' },
 ];
 
-function StatCard({ icon: Icon, label, value, tone, hint }) {
+const JOB_FILTERS = [
+  { value: '', label: 'Sab' },
+  { value: 'sent', label: 'Gaye' },
+  { value: 'processing', label: 'Ja raha hai' },
+  { value: 'pending', label: 'Line mein' },
+  { value: 'scheduled', label: 'Scheduled' },
+  { value: 'failed', label: 'Fail' },
+];
+
+function StatCard({ icon: Icon, label, value, tone, hint, loading }) {
   return (
     <div className="card !p-4">
       <div className="flex items-center gap-3">
-        <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${tone}`}>
-          <Icon size={18} />
-        </span>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${tone}`}><Icon size={18} /></span>
         <div>
           <p className="text-xs text-ink-500 dark:text-ink-400">{label}</p>
-          <p className="font-display text-xl font-bold text-ink-900 dark:text-white">{value}</p>
+          {loading ? <Skeleton className="mt-1 h-6 w-14" /> : <p className="font-display text-xl font-bold text-ink-900 dark:text-white">{Number(value || 0).toLocaleString('en-IN')}</p>}
         </div>
       </div>
       {hint && <p className="mt-2 text-xs text-ink-500 dark:text-ink-400">{hint}</p>}
@@ -56,12 +55,15 @@ export default function OutreachPage({ channel }) {
   const Icon = meta.icon;
   const qc = useQueryClient();
 
+  const [campaignTab, setCampaignTab] = useState('');
+  const [searchInput, setSearchInput] = useState('');
+  const [search, setSearch] = useState('');
+  const [campaignLimit, setCampaignLimit] = useState(20);
   const [filter, setFilter] = useState('');
   const [campaignId, setCampaignId] = useState('');
   const [page, setPage] = useState(1);
-  const [nowSending, setNowSending] = useState(null); // { jobId, name, contact }
+  const [nowSending, setNowSending] = useState(null);
   const [busy, setBusy] = useState(false);
-  // Templates → "Use in bulk" opens the launcher with that template picked.
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTemplate = searchParams.get('template') || '';
   const [launchOpen, setLaunchOpen] = useState(() => Boolean(initialTemplate) || searchParams.get('new') === '1');
@@ -70,34 +72,28 @@ export default function OutreachPage({ channel }) {
     if (searchParams.get('template') || searchParams.get('new')) setSearchParams({}, { replace: true });
   };
 
+  useEffect(() => { const t = setTimeout(() => setSearch(searchInput.trim()), 300); return () => clearTimeout(t); }, [searchInput]);
+  useEffect(() => { setCampaignLimit(20); }, [campaignTab, search, channel]);
+
   /* ---------------- data ---------------- */
-  const { data: summaryAll } = useOutreachSummaryQuery();
+  const { data: summaryAll, isLoading: summaryLoading } = useOutreachSummaryQuery();
   const stats = summaryAll?.[channel];
 
-  const { data: campaignsData } = useQuery({
-    queryKey: CAMPAIGNS_KEY,
-    queryFn: () => campaignApi.list().then((r) => r.data.data),
+  const campaignsKey = [...CAMPAIGNS_KEY, channel, campaignTab, search, campaignLimit];
+  const { data: campaignsData, isLoading: campaignsLoading, isFetching: campaignsFetching, error: campaignsError, refetch: refetchCampaigns } = useQuery({
+    queryKey: campaignsKey,
+    queryFn: () => campaignApi.list({ channel, limit: campaignLimit, ...(campaignTab ? { status: campaignTab } : {}), ...(search ? { search } : {}) }).then((r) => r.data),
+    placeholderData: keepPreviousData,
     staleTime: 10_000,
   });
-  const campaigns = useMemo(
-    () => (campaignsData?.campaigns || []).filter((c) => c.channels?.[channel]),
-    [campaignsData, channel],
-  );
+  const campaigns = useMemo(() => (campaignsData?.campaigns || []).filter((c) => c.channels?.[channel]), [campaignsData, channel]);
+  const selectedCampaign = campaigns.find((c) => c._id === campaignId) || null;
 
   const jobsKey = ['outreach', 'jobs', channel, campaignId, filter, page];
-  const { data: jobsData, isLoading, isFetching } = useQuery({
+  const { data: jobsData, isLoading, isFetching, error: jobsError } = useQuery({
     queryKey: jobsKey,
-    queryFn: () =>
-      outreachApi
-        .jobs({
-          channel,
-          page,
-          limit: 50,
-          ...(campaignId ? { campaignId } : {}),
-          ...(filter ? { status: filter } : {}),
-        })
-        .then((r) => r.data.data),
-    placeholderData: (prev) => prev,
+    queryFn: () => outreachApi.jobs({ channel, page, limit: 50, ...(campaignId ? { campaignId } : {}), ...(filter ? { status: filter } : {}) }).then((r) => r.data.data),
+    placeholderData: keepPreviousData,
     staleTime: 15_000,
   });
   const jobs = jobsData?.jobs || [];
@@ -113,46 +109,17 @@ export default function OutreachPage({ channel }) {
   useOutreachEvents({
     onJob: (p) => {
       if (p.channel !== channel) return;
-
-      // "Ab ye lead bheji ja rahi hai" banner
-      if (p.status === 'processing') {
-        setNowSending({
-          jobId: p.jobId,
-          name: p.name,
-          contact: channel === 'email' ? p.email : p.phone,
-        });
-      } else {
-        setNowSending((cur) => (cur?.jobId === p.jobId ? null : cur));
-      }
-
-      // Table ki wahi row jagah par update (refetch nahi, flicker nahi)
+      if (p.status === 'processing') setNowSending({ jobId: p.jobId, name: p.name, contact: channel === 'email' ? p.email : p.phone });
+      else setNowSending((cur) => (cur?.jobId === p.jobId ? null : cur));
       qc.setQueriesData({ queryKey: ['outreach', 'jobs', channel] }, (old) => {
         if (!old?.jobs) return old;
-        return {
-          ...old,
-          jobs: old.jobs.map((j) =>
-            j.id === p.jobId
-              ? {
-                  ...j,
-                  status: p.status,
-                  attempts: p.attempts,
-                  sentAt: p.sentAt,
-                  nextRunAt: p.nextRunAt,
-                  lastError: p.lastError,
-                  scheduled: p.status === 'pending' && new Date(p.nextRunAt) > new Date(),
-                }
-              : j,
-          ),
-        };
+        return { ...old, jobs: old.jobs.map((j) => (j.id === p.jobId ? { ...j, status: p.status, attempts: p.attempts, sentAt: p.sentAt, nextRunAt: p.nextRunAt, lastError: p.lastError, scheduled: p.status === 'pending' && new Date(p.nextRunAt) > new Date() } : j)) };
       });
     },
     onProgress: (p) => {
-      qc.setQueryData(CAMPAIGNS_KEY, (old) => {
+      qc.setQueriesData({ queryKey: CAMPAIGNS_KEY }, (old) => {
         if (!old?.campaigns) return old;
-        return {
-          ...old,
-          campaigns: old.campaigns.map((c) => (String(c._id) === p.campaignId ? { ...c, stats: p.stats } : c)),
-        };
+        return { ...old, campaigns: old.campaigns.map((c) => (String(c._id) === p.campaignId ? { ...c, stats: p.stats, displayStatus: c.displayStatus === 'scheduled' && (p.stats?.[channel]?.sent || p.stats?.[channel]?.processing) ? 'running' : c.displayStatus } : c)) };
       });
     },
     onCampaign: refreshAll,
@@ -161,15 +128,19 @@ export default function OutreachPage({ channel }) {
 
   /* ---------------- actions ---------------- */
   const handleAction = async (action, campaign, ch) => {
-    if (action === 'cancel' && !confirm(`Cancel "${campaign.name}"? Pending messages nahi jayenge.`)) return;
+    if (action === 'cancel' && !window.confirm(`"${campaign.name}" cancel karein? Jo messages abhi nahi gaye, woh nahi jayenge.`)) return;
     setBusy(true);
     try {
       const id = campaign._id;
-      if (action === 'pause') await campaignApi.pause(id);
-      if (action === 'resume') await campaignApi.resume(id);
-      if (action === 'cancel') await campaignApi.cancel(id);
-      if (action === 'retry') await campaignApi.retryFailed(id, ch);
+      let res;
+      if (action === 'pause') res = await campaignApi.pause(id);
+      if (action === 'resume') res = await campaignApi.resume(id);
+      if (action === 'cancel') res = await campaignApi.cancel(id);
+      if (action === 'retry') res = await campaignApi.retryFailed(id, ch);
+      toast.success(res?.message || 'Ho gaya');
       refreshAll();
+    } catch (err) {
+      showDialog({ title: 'Ye kaam nahi hua', message: errText(err) });
     } finally {
       setBusy(false);
     }
@@ -182,59 +153,27 @@ export default function OutreachPage({ channel }) {
   const todayDue = s.pending - s.scheduled;
 
   return (
-    <div>
+    <div className="mx-auto max-w-[1400px]">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="flex items-center gap-2 font-display text-2xl font-bold text-ink-900 dark:text-white">
-            <Icon size={24} className="text-brand-600" /> {meta.title}
-          </h1>
+          <h1 className="flex items-center gap-2 font-display text-2xl font-bold text-ink-900 dark:text-white"><Icon size={24} className="text-brand-600" /> {meta.title}</h1>
           <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">{meta.subtitle}</p>
         </div>
-        <button type="button" onClick={() => setLaunchOpen(true)} className="btn-primary flex items-center gap-2"><Send size={16} /> Create bulk campaign</button>
+        <button type="button" onClick={() => setLaunchOpen(true)} className="btn-primary flex items-center gap-2"><Send size={16} /> Naya campaign</button>
       </div>
 
-      {/* Now sending banner */}
-      <div
-        className={`mt-5 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${
-          nowSending
-            ? 'border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-100'
-            : 'border-ink-100 bg-white text-ink-500 dark:border-ink-800 dark:bg-ink-900 dark:text-ink-400'
-        }`}
-      >
-        {nowSending ? (
-          <>
-            <Loader2 size={18} className="animate-spin" />
-            <span>
-              Sending to <b>{nowSending.name}</b> {nowSending.contact && <span className="opacity-70">({nowSending.contact})</span>}…
-            </span>
-          </>
-        ) : s.processing > 0 ? (
-          <>
-            <Loader2 size={18} className="animate-spin" /> Sending…
-          </>
-        ) : queued > 0 && summaryAll?.[channel]?.nextRunAt ? (
-          <>
-            <Clock size={18} /> Idle — next batch {fmtDateTime(summaryAll[channel].nextRunAt)}
-          </>
-        ) : (
-          <>
-            <CheckCircle2 size={18} /> Nothing is being sent right now
-          </>
-        )}
+      <div className={`mt-5 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${nowSending || s.processing > 0 ? 'border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-100' : 'border-ink-100 bg-white text-ink-500 dark:border-ink-800 dark:bg-ink-900 dark:text-ink-400'}`} aria-live="polite">
+        {nowSending ? <><Loader2 size={18} className="animate-spin" /><span>Abhi bhej rahe hain: <b>{nowSending.name}</b> {nowSending.contact && <span className="opacity-70">({nowSending.contact})</span>}</span></>
+          : s.processing > 0 ? <><Loader2 size={18} className="animate-spin" /> Messages ja rahe hain…</>
+            : queued > 0 && summaryAll?.[channel]?.nextRunAt ? <><Clock size={18} /> Agla batch: <b>{fmtDateTime(summaryAll[channel].nextRunAt)}</b></>
+              : <><CheckCircle2 size={18} /> Abhi kuch nahi ja raha</>}
       </div>
 
-      {/* Stats */}
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <StatCard icon={Send} label="Total" value={s.total} tone="bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300" hint={`${pct}% complete`} />
-        <StatCard icon={CheckCircle2} label="Sent" value={s.sent} tone="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" />
-        <StatCard
-          icon={Clock}
-          label="Pending"
-          value={queued}
-          tone="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
-          hint={s.scheduled ? `${s.scheduled} scheduled for later days${todayDue > 0 ? `, ${todayDue} due now` : ''}` : undefined}
-        />
-        <StatCard icon={XCircle} label="Failed" value={s.failed} tone="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" />
+        <StatCard icon={Send} label="Total" value={s.total} tone="bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300" hint={`${pct}% poora`} loading={summaryLoading} />
+        <StatCard icon={CheckCircle2} label="Gaye (sent)" value={s.sent} tone="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300" loading={summaryLoading} />
+        <StatCard icon={Clock} label="Baaki" value={queued} tone="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300" hint={s.scheduled ? `${s.scheduled} aage ki date par${todayDue > 0 ? `, ${todayDue} abhi line mein` : ''}` : undefined} loading={summaryLoading} />
+        <StatCard icon={XCircle} label="Fail" value={s.failed} tone="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300" loading={summaryLoading} />
       </div>
       <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
         <div className="bg-green-500 transition-all duration-500" style={{ width: `${s.total ? (s.sent / s.total) * 100 : 0}%` }} />
@@ -242,98 +181,74 @@ export default function OutreachPage({ channel }) {
       </div>
 
       {/* Campaigns */}
-      {campaigns.length > 0 && (
-        <section className="mt-8">
-          <h2 className="mb-3 font-display text-lg font-semibold text-ink-900 dark:text-white">Campaigns</h2>
-          <div className="grid gap-3 lg:grid-cols-2">
-            {campaigns.map((c) => (
-              <CampaignCard
-                key={c._id}
-                campaign={c}
-                channel={channel}
-                selected={campaignId === c._id}
-                busy={busy}
-                onSelect={() => {
-                  setCampaignId((cur) => (cur === c._id ? '' : c._id));
-                  setPage(1);
-                }}
-                onAction={handleAction}
-              />
-            ))}
+      <section className="mt-8">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink-900 dark:text-white">Campaigns {campaignsFetching && !campaignsLoading && <Loader2 size={15} className="animate-spin text-ink-400" />}</h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" />
+              <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Campaign search" className="w-44 rounded-lg border border-ink-200 py-1.5 pl-8 pr-7 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white" />
+              {searchInput && <button type="button" onClick={() => setSearchInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Clear"><X size={13} /></button>}
+            </div>
+            <button type="button" onClick={() => refetchCampaigns()} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Refresh"><RefreshCw size={15} /></button>
           </div>
-        </section>
-      )}
+        </div>
+        <div className="mb-3 flex flex-wrap gap-1.5" role="tablist">
+          {CAMPAIGN_TABS.map((t) => (
+            <button key={t.value} type="button" role="tab" aria-selected={campaignTab === t.value} onClick={() => { setCampaignTab(t.value); setCampaignId(''); }} className={`rounded-full px-3 py-1 text-xs font-semibold transition ${campaignTab === t.value ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300'}`}>{t.label}</button>
+          ))}
+        </div>
 
-      {/* Lead-wise list */}
+        {campaignsError ? (
+          <div className="card flex items-center justify-between gap-3 text-sm text-red-700"><span className="flex items-center gap-2"><AlertTriangle size={16} /> {errText(campaignsError)}</span><button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => refetchCampaigns()}>Dobara try karein</button></div>
+        ) : campaignsLoading ? (
+          <div className="grid gap-3 lg:grid-cols-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-36 !rounded-xl" />)}</div>
+        ) : !campaigns.length ? (
+          <div className="card"><EmptyState icon={Rocket} title={campaignTab || search ? 'Is filter mein koi campaign nahi' : 'Abhi koi campaign nahi'} action={!campaignTab && !search && <button type="button" className="btn-primary" onClick={() => setLaunchOpen(true)}>Pehla campaign banayein</button>}>{campaignTab || search ? 'Doosra filter chunein.' : 'Upload Data se contacts daaliye, phir yahan campaign banaiye — chahein to date/time par schedule bhi kar sakte hain.'}</EmptyState></div>
+        ) : (
+          <>
+            <div className="grid gap-3 lg:grid-cols-2">
+              {campaigns.map((c) => (
+                <CampaignCard key={c._id} campaign={c} channel={channel} selected={campaignId === c._id} busy={busy} onSelect={() => { setCampaignId((cur) => (cur === c._id ? '' : c._id)); setPage(1); setFilter(''); }} onAction={handleAction} />
+              ))}
+            </div>
+            {campaignsData?.hasMore && <div className="mt-3 flex justify-center"><button type="button" className="btn-secondary text-sm" onClick={() => setCampaignLimit((l) => l + 20)} disabled={campaignsFetching}>{campaignsFetching ? <Loader2 size={15} className="animate-spin" /> : 'Aur campaigns dikhayein'}</button></div>}
+          </>
+        )}
+      </section>
+
+      {/* Contact-wise list */}
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg font-semibold text-ink-900 dark:text-white">
-            Leads {campaignId && <span className="text-sm font-normal text-ink-500">(filtered by campaign — click it again to clear)</span>}
+            {selectedCampaign ? <>“{selectedCampaign.name}” ke contacts <button type="button" onClick={() => setCampaignId('')} className="ml-2 inline-flex items-center gap-1 rounded-full bg-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-600 dark:bg-ink-800 dark:text-ink-300">Sab campaigns <X size={12} /></button></> : 'Har contact ka status'}
           </h2>
           <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map((f) => (
-              <button
-                key={f.value}
-                onClick={() => {
-                  setFilter(f.value);
-                  setPage(1);
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
-                  filter === f.value
-                    ? 'bg-brand-600 text-white'
-                    : 'bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700'
-                }`}
-              >
-                {f.label}
-              </button>
+            {JOB_FILTERS.map((f) => (
+              <button key={f.value} type="button" onClick={() => { setFilter(f.value); setPage(1); }} className={`rounded-full px-3 py-1 text-xs font-medium transition ${filter === f.value ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700'}`}>{f.label}</button>
             ))}
           </div>
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
-          <table className="w-full text-sm">
+          <table className="w-full min-w-[560px] text-sm">
             <thead className="bg-ink-50 text-left text-xs uppercase tracking-wide text-ink-500 dark:bg-ink-800 dark:text-ink-400">
-              <tr>
-                <th className="px-4 py-3">Lead</th>
-                <th className="px-4 py-3">{channel === 'email' ? 'Email' : 'Phone'}</th>
-                <th className="px-4 py-3">Day</th>
-                <th className="px-4 py-3">Status</th>
-              </tr>
+              <tr><th className="px-4 py-3">Contact</th><th className="px-4 py-3">{channel === 'email' ? 'Email' : 'Mobile'}</th><th className="px-4 py-3">Din</th><th className="px-4 py-3">Status</th></tr>
             </thead>
             <tbody>
-              {isLoading && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-ink-500">
-                    <Loader2 className="mx-auto animate-spin" />
-                  </td>
-                </tr>
-              )}
-              {!isLoading && jobs.length === 0 && (
-                <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-ink-500 dark:text-ink-400">
-                    Abhi is filter mein messages nahi hain. Upload Data se contacts import karein, phir Create bulk campaign se contacts select karein.
-                  </td>
-                </tr>
-              )}
+              {isLoading && Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i} className="border-t border-ink-100 dark:border-ink-800">{[1, 2, 3, 4].map((k) => <td key={k} className="px-4 py-3"><Skeleton className="h-4 w-24" /></td>)}</tr>
+              ))}
+              {!isLoading && jobsError && <tr><td colSpan={4} className="px-4 py-10 text-center text-red-600">{errText(jobsError)}</td></tr>}
+              {!isLoading && !jobsError && jobs.length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-ink-500 dark:text-ink-400">Is filter mein koi contact nahi.</td></tr>}
               {jobs.map((j) => (
-                <tr
-                  key={j.id}
-                  className={`border-t border-ink-100 transition-colors dark:border-ink-800 ${
-                    j.status === 'processing' ? 'bg-brand-50 dark:bg-brand-950/30' : ''
-                  }`}
-                >
+                <tr key={j.id} className={`border-t border-ink-100 transition-colors dark:border-ink-800 ${j.status === 'processing' ? 'bg-brand-50 dark:bg-brand-950/30' : ''}`}>
                   <td className="px-4 py-3 font-medium text-ink-900 dark:text-white">{j.name}</td>
                   <td className="px-4 py-3 text-ink-600 dark:text-ink-300">{meta.contact(j)}</td>
-                  <td className="px-4 py-3 text-ink-500 dark:text-ink-400">
-                    {j.dayNumber ? `Day ${j.dayNumber}` : '—'}
-                  </td>
+                  <td className="px-4 py-3 text-ink-500 dark:text-ink-400">{j.dayNumber ? `Din ${j.dayNumber}` : '—'}</td>
                   <td className="px-4 py-3">
                     <StatusChip job={j} />
-                    {j.lastError && (j.status === 'failed' || j.status === 'paused' || j.scheduled) && (
-                      <p className="mt-1 max-w-xs truncate text-xs text-red-600 dark:text-red-400" title={j.lastError}>
-                        {j.lastError}
-                      </p>
-                    )}
+                    {j.lastError && (j.status === 'failed' || j.status === 'paused' || j.scheduled) && <p className="mt-1 max-w-xs truncate text-xs text-red-600 dark:text-red-400" title={j.lastError}>{j.lastError}</p>}
                   </td>
                 </tr>
               ))}
@@ -343,16 +258,10 @@ export default function OutreachPage({ channel }) {
 
         {pagination && pagination.totalPages > 1 && (
           <div className="mt-3 flex items-center justify-between text-sm text-ink-500 dark:text-ink-400">
-            <span>
-              Page {pagination.page} of {pagination.totalPages} · {pagination.total} leads {isFetching && '· updating…'}
-            </span>
+            <span>Page {pagination.page} / {pagination.totalPages} · {pagination.total.toLocaleString('en-IN')} contacts {isFetching && '· update ho raha hai…'}</span>
             <div className="flex gap-2">
-              <button className="btn-secondary !px-2.5 !py-1.5" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
-                <ChevronLeft size={16} />
-              </button>
-              <button className="btn-secondary !px-2.5 !py-1.5" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)}>
-                <ChevronRight size={16} />
-              </button>
+              <button type="button" className="btn-secondary !px-2.5 !py-1.5" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} aria-label="Previous"><ChevronLeft size={16} /></button>
+              <button type="button" className="btn-secondary !px-2.5 !py-1.5" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)} aria-label="Next"><ChevronRight size={16} /></button>
             </div>
           </div>
         )}

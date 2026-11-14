@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, MessageCircle, Mail, Plus, Send, Users, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Download, FileSpreadsheet, Loader2, MessageCircle, Mail, Plus, Send, Users, X, CalendarClock, Zap } from 'lucide-react';
+import { toast } from '../../components/ui/index.jsx';
 import { leadApi } from '../../api/leadApi.js';
 import { audienceApi } from '../../api/audienceApi.js';
 import SaveAudienceModal from '../audiences/SaveAudienceModal.jsx';
@@ -31,8 +32,66 @@ const SOURCES = [
   { key: 'upload', label: 'Nayi sheet upload' },
 ];
 
-export default function CampaignLauncher({ channel, onClose, onLaunched, initialTemplate = '' }) {
+const pad = (n) => String(n).padStart(2, '0');
+const localDate = (d = new Date()) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+function addDays(dateStr, n) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() + n);
+  return localDate(d);
+}
+/** The server schedules in India time; convert the user's local date/time to IST. */
+function toIst(dateStr, timeStr) {
+  const at = dateStr ? new Date(`${dateStr}T${timeStr || '10:00'}:00`) : new Date();
+  const ist = new Date(at.getTime() + 330 * 60000);
+  return { startDate: ist.toISOString().slice(0, 10), sendTime: ist.toISOString().slice(11, 16) };
+}
+const prettyDate = (s) => (s ? new Date(`${s}T00:00:00`).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) : '');
+const prettyTime = (t) => { const [h, m] = String(t || '10:00').split(':').map(Number); return `${(h % 12) || 12}:${pad(m || 0)} ${h >= 12 ? 'PM' : 'AM'}`; };
+
+/** "Kab bhejna hai?" — send now, or on a date/time spread over N days. */
+function ScheduleBox({ count, schedule, setSchedule }) {
+  const perDay = Math.max(1, Math.ceil((count || 0) / Math.max(1, schedule.days)));
+  const endDate = addDays(schedule.date, Math.max(1, Math.ceil((count || 1) / perDay)) - 1);
+  return (
+    <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800">
+      <h3 className="text-sm font-bold text-ink-900 dark:text-white">Step 3 · Kab bhejna hai?</h3>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        {[['now', 'Abhi bhejein', Zap], ['later', 'Schedule karein', CalendarClock]].map(([key, label, Icon]) => (
+          <button key={key} type="button" onClick={() => setSchedule((s) => ({ ...s, mode: key }))} className={`flex items-center justify-center gap-2 rounded-xl border px-3 py-2.5 text-sm font-semibold ${schedule.mode === key ? 'border-brand-500 bg-brand-50 text-brand-800 ring-2 ring-brand-500/15 dark:bg-brand-900/20 dark:text-brand-100' : 'border-ink-200 text-ink-600 dark:border-ink-700 dark:text-ink-300'}`}>
+            <Icon size={15} /> {label}
+          </button>
+        ))}
+      </div>
+      {schedule.mode === 'later' && (
+        <div className="mt-3 grid gap-3 sm:grid-cols-3">
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Kis din se
+            <input type="date" className="input-field mt-1" min={localDate()} value={schedule.date} onChange={(e) => setSchedule((s) => ({ ...s, date: e.target.value }))} />
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Kitne baje
+            <input type="time" className="input-field mt-1" value={schedule.time} onChange={(e) => setSchedule((s) => ({ ...s, time: e.target.value }))} />
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Kitne din mein bhejein
+            <select className="input-field mt-1" value={schedule.days} onChange={(e) => setSchedule((s) => ({ ...s, days: Number(e.target.value) }))}>
+              {[1, 2, 3, 4, 5, 7, 10, 14, 21, 30].map((d) => <option key={d} value={d}>{d} din</option>)}
+            </select>
+          </label>
+        </div>
+      )}
+      <p className="mt-3 rounded-lg bg-ink-50 px-3 py-2 text-xs leading-5 text-ink-600 dark:bg-ink-800/60 dark:text-ink-300">
+        {schedule.mode === 'now'
+          ? `${(count || 0).toLocaleString('en-IN')} contacts ko abhi se ek-ek karke message jayega (WhatsApp ki safe speed se).`
+          : `${prettyDate(schedule.date)} ${prettyTime(schedule.time)} se shuru · har din ~${perDay.toLocaleString('en-IN')} contacts · ${prettyDate(endDate)} tak poora. Campaign page par ye date dikhegi.`}
+      </p>
+    </div>
+  );
+}
+
+export default function CampaignLauncher({ channel, onClose, onLaunched, initialTemplate = '', initialLeadIds = null, initialName = '', lockSelection = false }) {
   const isWhatsApp = channel === 'whatsapp';
+  const [schedule, setSchedule] = useState(() => {
+    const d = new Date(Date.now() + 60 * 60 * 1000);
+    return { mode: initialLeadIds ? 'later' : 'now', date: localDate(d), time: `${pad(d.getHours())}:00`, days: 1 };
+  });
   const [source, setSource] = useState('sheet');
   const [fileFilter, setFileFilter] = useState('');
   const [sheetRefresh, setSheetRefresh] = useState(0);
@@ -44,13 +103,15 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
   const [uploadState, setUploadState] = useState({ loading: false, fileName: '', result: null, error: '' });
   const [saveUploadAsAudience, setSaveUploadAsAudience] = useState(true);
   const [showSaveAudience, setShowSaveAudience] = useState(false);
-  const [campaignName, setCampaignName] = useState(`${isWhatsApp ? 'WhatsApp' : 'Email'} campaign ${new Date().toLocaleDateString('en-IN')}`);
-  const [selected, setSelected] = useState({});
+  const [campaignName, setCampaignName] = useState(initialName || `${isWhatsApp ? 'WhatsApp' : 'Email'} campaign ${new Date().toLocaleDateString('en-IN')}`);
+  const [selected, setSelected] = useState(() => (initialLeadIds ? Object.fromEntries(initialLeadIds.map((id) => [String(id), true])) : {}));
   const [rowsError, setRowsError] = useState('');
   const [templates, setTemplates] = useState([]);
   const [templatesLoading, setTemplatesLoading] = useState(false);
   const [templatesError, setTemplatesError] = useState('');
   const [emailTemplates, setEmailTemplates] = useState([]);
+  const [emailAccount, setEmailAccount] = useState(null);
+  useEffect(() => { if (!isWhatsApp) emailApi.account().then((r) => setEmailAccount(r.data.account)).catch(() => setEmailAccount({ connected: false })); }, [isWhatsApp]);
   const [emailTemplateId, setEmailTemplateId] = useState('');
   const [templateName, setTemplateName] = useState('');
   const [templateVariables, setTemplateVariables] = useState({});
@@ -63,13 +124,6 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
   const [previewLead, setPreviewLead] = useState(null);
   // Multi-number plans: which company number sends this campaign.
   const waInfo = useAuthStore((st) => st.org?.whatsapp);
-  const orgFeatures = useAuthStore((st) => st.org?.features);
-  const orgMessaging = useAuthStore((st) => st.org?.messaging);
-  // Bulk messaging safety: consent + policy acceptance are required for every launch.
-  const [consentConfirmed, setConsentConfirmed] = useState(false);
-  const [acceptPolicy, setAcceptPolicy] = useState(false);
-  const featureKey = isWhatsApp ? 'bulkWhatsapp' : 'emailCampaigns';
-  const featureLocked = orgFeatures ? orgFeatures[featureKey] === false : false;
   const extraNumbers = waInfo?.extraNumbers || [];
   const [fromNumber, setFromNumber] = useState('');
 
@@ -217,6 +271,12 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
     if (!campaignName.trim()) return 'Campaign name likhna zaroori hai.';
     if (!selectedIds.length) return 'Kam se kam ek lead select karein.';
     if (selectedIds.length > 5000) return 'Ek campaign mein maximum 5,000 leads select karein.';
+    if (schedule.mode === 'later') {
+      if (!schedule.date || !schedule.time) return 'Schedule ki date aur time chunein.';
+      const at = new Date(`${schedule.date}T${schedule.time}:00`);
+      if (Number.isNaN(at.getTime())) return 'Date / time sahi nahi hai.';
+      if (at.getTime() < Date.now() - 2 * 60 * 1000) return 'Ye time nikal chuka hai — aage ka time chunein ya "Abhi bhejein" chunein.';
+    }
     if (isWhatsApp) {
       if (!selectedTemplate) return 'Ek approved Meta template select karein.';
       if (templateHasImageHeader(selectedTemplate) && !headerImageUrl.trim()) return 'Is template ke image header ke liye public image URL required hai.';
@@ -238,8 +298,6 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
     setLaunchMessage('');
     const validation = validate();
     if (validation) { setLaunchError(validation); return; }
-    if (featureLocked) { setLaunchError(`${isWhatsApp ? 'Bulk WhatsApp' : 'Bulk email'} aapke current plan mein nahi hai. Growth plan ya upar lein (Plan & Billing).`); return; }
-    if (!consentConfirmed || !acceptPolicy) { setLaunchError('Launch se pehle consent confirm karein aur Bulk Messaging Policy accept karein.'); return; }
     setLaunching(true);
     try {
       const payload = {
@@ -247,11 +305,9 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
         leadIds: selectedIds,
         ...(source === 'audience' && audienceId ? { audienceId } : {}),
         channels: { whatsapp: isWhatsApp, email: !isWhatsApp },
-        dailyLimit: 5000,
-        sendTime: (() => { const now = new Date(); return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`; })(),
-        startDate: new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10),
-        acceptPolicy,
-        consentConfirmed,
+        ...(schedule.mode === 'later'
+          ? { dailyLimit: Math.min(5000, Math.max(1, Math.ceil(selectedIds.length / Math.max(1, schedule.days)))), ...toIst(schedule.date, schedule.time) }
+          : { dailyLimit: 5000, ...toIst(null) }),
       };
       if (isWhatsApp) {
         payload.whatsappTemplateName = selectedTemplate.name;
@@ -277,15 +333,12 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
       const response = await campaignApi.launch(payload);
       const queued = response.data?.queued || {};
       const count = isWhatsApp ? queued.whatsapp : queued.email;
-      const sup = response.data?.suppressed;
-      const skipped = sup ? (sup.whatsapp || 0) + (sup.email || 0) : 0;
-      setLaunchMessage(
-        `${count || 0} ${isWhatsApp ? 'WhatsApp' : 'email'} messages queue mein add hue.` +
-          (skipped ? ` ${skipped} contacts skip hue (opt-out / bounce / do-not-contact).` : '') +
-          (response.data?.sendTimeShifted ? ' Abhi quiet hours hain — messages subah allowed time par jayenge.' : '') +
-          ' Sending progress page par live update hogi.',
-      );
-      onLaunched?.();
+      const msg = schedule.mode === 'later'
+        ? `Campaign schedule ho gaya: ${count || 0} ${isWhatsApp ? 'WhatsApp' : 'email'} messages ${prettyDate(schedule.date)} ${prettyTime(schedule.time)} se jayenge.`
+        : `${count || 0} ${isWhatsApp ? 'WhatsApp' : 'email'} messages queue mein add hue. Progress Campaigns page par live dikhegi.`;
+      setLaunchMessage(msg);
+      toast.success(msg);
+      onLaunched?.(response.data);
       setTimeout(() => onClose?.(), 1000);
     } catch (err) {
       setLaunchError(err?.response?.data?.message || 'Campaign start nahi hui. Settings aur selected contacts check karein.');
@@ -303,12 +356,19 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
 
       <form onSubmit={launch} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-y-auto p-4 sm:p-5">
+          {!isWhatsApp && emailAccount && !emailAccount.connected && <div role="alert" className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">Pehle apna official email connect karein. <Link to="/email/setup" className="font-semibold underline">Email setup</Link></div>}
           {(launchError || rowsError || templatesError) && <div role="alert" className="mb-4 flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"><AlertTriangle size={17} className="mt-0.5 shrink-0" /><div>{launchError || rowsError || templatesError}</div></div>}
           {launchMessage && <div className="mb-4 flex items-start gap-2 rounded-xl bg-green-50 px-3 py-2.5 text-sm text-green-700 dark:bg-green-900/20 dark:text-green-300"><CheckCircle2 size={17} className="mt-0.5 shrink-0" />{launchMessage}</div>}
 
           <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
             <section className="min-w-0 space-y-3">
               <div><label className="mb-1.5 block text-sm font-semibold text-ink-800 dark:text-ink-100">Campaign name</label><input className="input-field" maxLength={120} value={campaignName} onChange={(e) => setCampaignName(e.target.value)} placeholder="e.g. Diwali property offer" /></div>
+              {lockSelection ? (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
+                  <p className="font-semibold">Step 1 · Kisko bhejna hai?</p>
+                  <p className="mt-1 flex items-center gap-2"><Users size={15} /> Abhi upload kiye gaye <b>{selectedIds.length.toLocaleString('en-IN')}</b> contacts select hain.</p>
+                </div>
+              ) : <>
               <div className="rounded-xl border border-ink-100 p-3 dark:border-ink-800">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><p className="text-sm font-semibold text-ink-800 dark:text-ink-100">Step 1 · Kisko bhejna hai?</p><p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{selectedIds.length.toLocaleString('en-IN')} contacts selected</p></div>
@@ -339,6 +399,7 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
                 {uploadState.error && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{uploadState.error}</div>}
                 {uploadState.result && <div className="rounded-xl bg-green-50 p-3 text-sm text-green-800 dark:bg-green-900/20 dark:text-green-200"><p className="flex items-center gap-2 font-semibold"><CheckCircle2 size={16} /> {uploadState.fileName}: {uploadState.result.ready} contacts selected</p><p className="mt-1 text-xs">{uploadState.result.inserted} naye contacts Upload Data mein jode gaye{uploadState.result.invalid ? `, ${uploadState.result.invalid} galat rows chhodi gayi` : ''}.{uploadState.result.audienceName ? ` Audience "${uploadState.result.audienceName}" bhi save hua.` : ''}</p></div>}
               </div>}
+              </>}
             </section>
 
             <section className="space-y-4">
@@ -351,24 +412,11 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
                 {selectedTemplate && templateHasImageHeader(selectedTemplate) && <div className="mt-3"><label className="mb-1.5 block text-xs font-semibold text-ink-600 dark:text-ink-300">Image header URL</label><input type="url" className="input-field" value={headerImageUrl} onChange={(e) => setHeaderImageUrl(e.target.value)} placeholder="https://.../property-offer.jpg" /><p className="mt-1 text-[11px] text-ink-400">Template image is prefilled. A public HTTPS image URL is required by Meta Cloud API.</p></div>}
               </div> : <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800"><div className="flex items-start justify-between gap-3"><div><h3 className="text-sm font-bold text-ink-900 dark:text-white">Step 2 · Choose email template</h3><p className="mt-1 text-xs text-ink-500 dark:text-ink-400">Saved template ka content per-contact personalize hoga.</p></div><Link to="/email/templates" className="shrink-0 text-xs font-semibold text-brand-600 hover:underline">Manage templates</Link></div><label className="mb-1.5 mt-4 block text-xs font-semibold text-ink-600 dark:text-ink-300">Template</label><select className="input-field" value={emailTemplateId} onChange={(e) => setEmailTemplateId(e.target.value)} disabled={templatesLoading || !emailTemplates.length}><option value="">Select a saved email template</option>{emailTemplates.map((item) => <option key={item._id} value={item._id}>{item.name} · {item.category || 'General'}</option>)}</select>{selectedEmailTemplate ? <div className="mt-3 rounded-lg bg-ink-50 p-3 dark:bg-ink-800/70"><p className="text-[10px] font-bold uppercase tracking-wide text-ink-400">Subject preview</p><p className="mt-1 text-sm font-semibold text-ink-800 dark:text-ink-100">{selectedEmailTemplate.subject}</p>{selectedEmailTemplate.imageUrl && <img src={selectedEmailTemplate.imageUrl} alt="Email template" className="mt-3 max-h-52 w-full rounded-lg object-contain bg-white"/>}<p className="mt-3 text-[10px] font-bold uppercase tracking-wide text-ink-400">Message preview</p><p className="mt-1 whitespace-pre-wrap break-words text-sm leading-6 text-ink-700 dark:text-ink-200">{selectedEmailTemplate.body}</p><p className="mt-2 text-[11px] text-ink-400">Variables such as {'{{name}}'} are filled per recipient.</p></div> : <div className="mt-3 rounded-lg border border-dashed border-ink-200 p-4 text-sm text-ink-500 dark:border-ink-700 dark:text-ink-400">{templatesLoading ? 'Loading saved email templates…' : 'Pehle Email → Templates mein reusable email template create karein.'}</div>}</div>}
 
-              <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800"><h3 className="text-sm font-bold text-ink-900 dark:text-white">Send now</h3><p className="mt-1 text-xs leading-5 text-ink-500 dark:text-ink-400">Campaign jobs start as soon as you launch. Messages are still sent one by one with provider-safe pacing; there is no daily schedule or start-time setting.</p></div>
-              {featureLocked && <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200"><b>{isWhatsApp ? 'Bulk WhatsApp' : 'Bulk email'} aapke plan mein nahi hai.</b> Growth plan mein bulk WhatsApp + email, lead assignment aur follow-ups milte hain. <Link to="/billing" className="font-semibold underline">Plan upgrade karein</Link></div>}
-              <div className="rounded-xl border border-brand-100 bg-brand-50/60 p-4 dark:border-brand-900 dark:bg-brand-950/20">
-                <h3 className="text-sm font-bold text-ink-900 dark:text-white">Safety rules (apne aap lagte hain)</h3>
-                <ul className="mt-2 list-disc space-y-1 pl-4 text-xs leading-5 text-ink-600 dark:text-ink-300">
-                  <li>Jo contacts STOP / unsubscribe kar chuke hain, ya jinka email bounce / spam hua hai, unhe message nahi jayega.</li>
-                  <li>Messages sirf {orgMessaging?.quietHoursEnd || '09:00'}–{orgMessaging?.quietHoursStart || '21:00'} (local time) ke beech jaate hain. Raat mein launch kiya to subah bhejenge.</li>
-                  <li>Ek contact ko ek channel par 24 ghante mein 1 aur hafte mein max 3 campaign messages.</li>
-                  <li>Bahut zyada failures, STOP replies, bounces ya spam complaints aaye to campaign khud ruk jayega.</li>
-                  {!isWhatsApp && <li>Har email mein unsubscribe link aur aapka company address apne aap judega{orgMessaging && !orgMessaging.postalAddress ? ' — Settings mein postal address add karein.' : '.'}</li>}
-                </ul>
-                <label className="mt-3 flex items-start gap-2 text-xs text-ink-700 dark:text-ink-200"><input type="checkbox" className="mt-0.5" checked={consentConfirmed} onChange={(e) => setConsentConfirmed(e.target.checked)} /><span>Main confirm karta/karti hoon ki in contacts ne mere business se {isWhatsApp ? 'WhatsApp' : 'email'} messages lene ki permission di hai (enquiry, form ya existing customer). Ye kharidi hui / scraped list nahi hai.</span></label>
-                <label className="mt-2 flex items-start gap-2 text-xs text-ink-700 dark:text-ink-200"><input type="checkbox" className="mt-0.5" checked={acceptPolicy} onChange={(e) => setAcceptPolicy(e.target.checked)} /><span>Maine <Link to="/messaging-policy" target="_blank" className="font-semibold text-brand-700 underline">Bulk Messaging &amp; Acceptable Use Policy</Link> padh li hai aur accept karta/karti hoon.</span></label>
-              </div>
+              <ScheduleBox count={selectedIds.length} schedule={schedule} setSchedule={setSchedule} />
             </section>
           </div>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-ink-50/70 px-4 py-3 dark:border-ink-800 dark:bg-ink-900 sm:px-5"><p className="text-xs text-ink-500 dark:text-ink-400"><b className="text-ink-800 dark:text-ink-100">{selectedIds.length.toLocaleString('en-IN')}</b> contacts · message tabhi jayega jab aap Start campaign dabayenge.</p><div className="flex gap-2"><button type="button" onClick={onClose} disabled={launching} className="btn-secondary">Cancel</button><button type="submit" disabled={launching || templatesLoading || !selectedIds.length || featureLocked || !consentConfirmed || !acceptPolicy} className="btn-primary flex items-center gap-2 disabled:opacity-50">{launching ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}{launching ? 'Adding to queue…' : 'Start campaign'}</button></div></div>
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 bg-ink-50/70 px-4 py-3 dark:border-ink-800 dark:bg-ink-900 sm:px-5"><p className="text-xs text-ink-500 dark:text-ink-400"><b className="text-ink-800 dark:text-ink-100">{selectedIds.length.toLocaleString('en-IN')}</b> contacts · {schedule.mode === 'later' ? `${prettyDate(schedule.date)} ${prettyTime(schedule.time)} se bhejna shuru hoga.` : 'Start campaign dabate hi bhejna shuru.'}</p><div className="flex gap-2"><button type="button" onClick={onClose} disabled={launching} className="btn-secondary">Cancel</button><button type="submit" disabled={launching || templatesLoading || !selectedIds.length} className="btn-primary flex items-center gap-2 disabled:opacity-50">{launching ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}{launching ? 'Save ho raha hai…' : schedule.mode === 'later' ? 'Schedule campaign' : 'Start campaign'}</button></div></div>
       </form>
     </div>
     {showSaveAudience && <SaveAudienceModal leadIds={selectedIds} source="selection" onClose={() => setShowSaveAudience(false)} onSaved={(audience) => { setShowSaveAudience(false); setLaunchMessage(`Audience "${audience.name}" save ho gaya.`); loadAudiences(); }} />}

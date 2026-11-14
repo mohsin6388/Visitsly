@@ -71,6 +71,46 @@ function loadFacebookSdk(appId, version) {
   });
 }
 
+/** "Connection check": simple green/amber/red steps with a one-line fix each. */
+function HealthPanel({ canManage }) {
+  const [health, setHealth] = useState(null);
+  const [busy, setBusy] = useState('');
+  const [error, setError] = useState('');
+  const run = async (fix = false) => {
+    setBusy(fix ? 'fix' : 'check'); setError('');
+    try {
+      const res = fix ? await orgApi.fixWhatsappWebhook() : await orgApi.whatsappHealth();
+      setHealth(res.data.health);
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Check nahi ho paaya. Thodi der baad try karein.');
+    } finally { setBusy(''); }
+  };
+  useEffect(() => { run(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const icon = (state) => state === 'ok' ? <CheckCircle2 size={17} className="text-green-600" /> : state === 'warning' ? <AlertTriangle size={17} className="text-amber-500" /> : <XCircle size={17} className="text-red-600" />;
+  const webhookBad = health?.steps?.some((st) => st.key === 'webhook' && st.state === 'error');
+  return (
+    <div className="mt-5 border-t border-ink-100 pt-4 dark:border-ink-800">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink-800 dark:text-ink-100"><ShieldCheck size={16} className="text-brand-600" /> Connection check {health && (health.ok ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] text-green-700">Sab theek hai</span> : <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] text-red-700">Dhyan dein</span>)}</p>
+        <button type="button" className="btn-secondary gap-1.5 !py-1.5 text-xs" onClick={() => run()} disabled={!!busy}>{busy === 'check' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Dobara check karein</button>
+      </div>
+      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {!health && !error && <p className="mt-3 flex items-center gap-2 text-sm text-ink-500"><Loader2 size={14} className="animate-spin" /> Check ho raha hai…</p>}
+      {health && (
+        <ul className="mt-3 space-y-2">
+          {health.steps.map((st) => (
+            <li key={st.key} className="flex items-start gap-2.5 rounded-lg bg-ink-50 px-3 py-2 text-sm dark:bg-ink-800/60">
+              <span className="mt-0.5 shrink-0">{icon(st.state)}</span>
+              <span className="min-w-0"><span className="block font-medium text-ink-800 dark:text-ink-100">{st.label}</span>{st.help && <span className="block text-xs text-ink-500 dark:text-ink-400">{st.key === 'activity' && st.state === 'ok' ? new Date(st.help).toLocaleString('en-IN') : st.help}</span>}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {webhookBad && canManage && <button type="button" className="btn-primary mt-3 gap-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => run(true)}>{busy === 'fix' && <Loader2 size={13} className="animate-spin" />}Fix karein</button>}
+    </div>
+  );
+}
+
 /** Extra numbers (Builder: 2, Enterprise: many) — e.g. one number per project. */
 function ExtraNumbers({ wa, onUpdated, canManage }) {
   const org = useAuthStore((s) => s.org);
@@ -558,8 +598,7 @@ export default function ConnectWhatsApp({ onChange }) {
     <section className="card min-w-0">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-ink-900 dark:text-white">Aapka WhatsApp Business number</h2>
-          <p className="mt-1 max-w-2xl text-sm text-ink-500 dark:text-ink-400">Apna business number Meta ke official signup se connect karein. AI aur campaigns isi connected number se chalenge; WhatsApp message charges Meta ke account par honge.</p>
+          <h2 className="text-lg font-semibold text-ink-900 dark:text-white">WhatsApp number</h2>
         </div>
         {connected
           ? <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-300"><CheckCircle2 size={14} /> Connected</span>
@@ -602,13 +641,10 @@ export default function ConnectWhatsApp({ onChange }) {
         <div className="mt-5 space-y-4">
           {canUseEmbedded ? (
             <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800">
-              <p className="font-semibold text-ink-900 dark:text-white">Step 1 — Meta se WhatsApp connect karein</p>
-              <p className="mt-1 text-sm leading-5 text-ink-500 dark:text-ink-400">Business Portfolio ke admin Facebook account se login karein. Meta flow mein apna WABA aur phone number choose karke permissions aur number verification complete karein. Existing WhatsApp Business App number ko saath use karna hai to ye Meta Coexistence eligibility/configuration par depend karta hai.</p>
-              <button onClick={startEmbedded} disabled={busy} className="btn-primary mt-4 gap-2 !bg-[#1877F2] hover:!bg-[#166FE5]">
+              <p className="font-semibold text-ink-900 dark:text-white">Facebook se number connect karein</p>
+                            <button onClick={startEmbedded} disabled={busy} className="btn-primary mt-4 gap-2 !bg-[#1877F2] hover:!bg-[#166FE5]">
                 {busy ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}Connect with Facebook
               </button>
-              <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-400"><ShieldCheck size={13} /> Visitsly aapka Facebook password nahi dekhta. Access token browser mein expose nahi hota.</p>
-              <p className="mt-2 flex items-start gap-1.5 text-xs leading-5 text-ink-400"><Info size={13} className="mt-0.5 shrink-0" /> Agar popup close ho jaaye ya Meta error dikhaye, neeche exact error aur next step show hoga. Connection ke liye aapko Meta App ka admin banna zaroori nahi, lekin apne business assets ka access hona chahiye.</p>
             </div>
           ) : (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
@@ -634,6 +670,7 @@ export default function ConnectWhatsApp({ onChange }) {
         </div>
       )}
 
+      {connected && <HealthPanel canManage={canManage} />}
       {connected && <ExtraNumbers wa={wa} canManage={canManage} onUpdated={(next) => { setWa(next); void onChange?.(); }} />}
 
       {pinPromptOpen && pendingAttempt && (

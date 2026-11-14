@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FileText, Loader2, Maximize2, Plus, Trash2 } from 'lucide-react';
+import { FileText, ImagePlus, Loader2, Maximize2, Plus, Trash2, X } from 'lucide-react';
 import { propertyApi } from '../../api/propertyApi.js';
 import { siteApi, siteKey } from '../../api/siteApi.js';
+import { uploadApi } from '../../api/uploadApi.js';
 
 /**
  * Properties in "Excel mode": a spreadsheet grid where every cell is edited
@@ -50,6 +51,69 @@ function toValue(column, raw) {
   return Math.round(n);
 }
 
+
+/** Ek property ki photos: ek saath kai photos upload, dekhna aur hatana. */
+function PhotosModal({ property, onClose, onSaved }) {
+  const [images, setImages] = useState(property.images || []);
+  const [uploading, setUploading] = useState(0);
+  const [error, setError] = useState('');
+
+  const persist = async (next) => {
+    const res = await propertyApi.update(property._id, { images: next });
+    setImages(next);
+    onSaved(res.data.property || { ...property, images: next });
+  };
+
+  const addFiles = async (event) => {
+    const files = Array.from(event.target.files || []);
+    event.target.value = '';
+    if (!files.length) return;
+    const bad = files.find((f) => !f.type.startsWith('image/') || f.size > 25 * 1024 * 1024);
+    if (bad) { setError(`${bad.name}: sirf image (25 MB tak) allowed hai.`); return; }
+    setError(''); setUploading(files.length);
+    const urls = [];
+    const failed = [];
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < files.length) {
+        const file = files[cursor++];
+        try { urls.push((await uploadApi.image(file)).data.url); } catch { failed.push(file.name); }
+        setUploading((n) => n - 1);
+      }
+    };
+    await Promise.all([worker(), worker(), worker()]);
+    try { if (urls.length) await persist([...new Set([...images, ...urls])]); }
+    catch (err) { setError(err?.response?.data?.message || 'Photos save nahi hui.'); }
+    if (failed.length) setError(`${failed.length} photo upload nahi hui: ${failed.slice(0, 3).join(', ')}`);
+    setUploading(0);
+  };
+
+  const removeAt = async (index) => {
+    try { await persist(images.filter((_, i) => i !== index)); }
+    catch (err) { setError(err?.response?.data?.message || 'Photo hata nahi payi.'); }
+  };
+
+  return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !uploading) onClose(); }}>
+    <div role="dialog" aria-modal="true" aria-label="Property photos" className="my-6 w-full max-w-2xl rounded-2xl bg-white p-5 shadow-xl dark:bg-ink-900">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0"><h3 className="truncate text-base font-semibold text-ink-900 dark:text-white">{property.projectName} — Photos</h3><p className="text-xs text-ink-500">{images.length} photos</p></div>
+        <button type="button" onClick={onClose} disabled={uploading > 0} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Close"><X size={18} /></button>
+      </div>
+      <label className={`mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink-200 px-4 py-6 text-sm font-semibold text-ink-600 hover:border-brand-400 hover:text-brand-600 dark:border-ink-700 dark:text-ink-300 ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
+        {uploading ? <><Loader2 size={17} className="animate-spin" /> {uploading} photo upload ho rahi hain…</> : <><ImagePlus size={17} /> Photos chunein (kai ek saath)</>}
+        <input type="file" accept="image/*" multiple className="hidden" disabled={uploading > 0} onChange={addFiles} />
+      </label>
+      {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</p>}
+      {images.length > 0 && <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
+        {images.map((url, index) => <div key={url} className="group relative aspect-square overflow-hidden rounded-lg bg-ink-100 dark:bg-ink-800">
+          <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={`Property ${index + 1}`} loading="lazy" className="h-full w-full object-cover" /></a>
+          <button type="button" onClick={() => removeAt(index)} className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-100 hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Photo ${index + 1} hatayein`}><X size={13} /></button>
+        </div>)}
+      </div>}
+    </div>
+  </div>;
+}
+
 export default function PropertySheet({ search = '', city = '', refreshKey = 0, onOpenFull, onChanged, onAddBrochure }) {
   const [siteBrochures, setSiteBrochures] = useState({}); // site key -> newest brochure
   const [rows, setRows] = useState([]);
@@ -59,6 +123,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
   const [error, setError] = useState('');
   const [cellState, setCellState] = useState({}); // `${id}:${key}` -> 'saving' | 'saved' | 'error'
   const [adding, setAdding] = useState(false);
+  const [photosFor, setPhotosFor] = useState(null);
   const drafts = useRef({});
 
   const load = useCallback(async () => {
@@ -150,18 +215,20 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
             <th className="sticky left-0 z-10 w-12 border border-ink-200 bg-ink-100 px-2 py-1 text-[11px] font-medium text-ink-400 dark:border-ink-700 dark:bg-ink-800" aria-hidden="true" />
             {COLUMNS.map((column, index) => <th key={column.key} className="border border-ink-200 px-2 py-1 text-center text-[11px] font-medium text-ink-400 dark:border-ink-700" aria-hidden="true">{letter(index)}</th>)}
             <th className="border border-ink-200 px-2 py-1 text-center text-[11px] font-medium text-ink-400 dark:border-ink-700" aria-hidden="true">{letter(COLUMNS.length)}</th>
+            <th className="border border-ink-200 px-2 py-1 text-center text-[11px] font-medium text-ink-400 dark:border-ink-700" aria-hidden="true">{letter(COLUMNS.length + 1)}</th>
             <th className="border border-ink-200 px-2 py-1 dark:border-ink-700" aria-hidden="true" />
           </tr>
           <tr className="bg-ink-50 dark:bg-ink-800/60">
             <th className="sticky left-0 z-10 border border-ink-200 bg-ink-50 px-2 py-2 text-[11px] font-medium text-ink-400 dark:border-ink-700 dark:bg-ink-800">1</th>
             {COLUMNS.map((column) => <th key={column.key} scope="col" className={`whitespace-nowrap border border-ink-200 px-2.5 py-2 text-left text-xs font-bold text-ink-700 dark:border-ink-700 dark:text-ink-200 ${column.width}`}>{column.label}</th>)}
+            <th scope="col" className="min-w-[120px] whitespace-nowrap border border-ink-200 px-2.5 py-2 text-left text-xs font-bold text-ink-700 dark:border-ink-700 dark:text-ink-200">Photos</th>
             <th scope="col" className="min-w-[130px] whitespace-nowrap border border-ink-200 px-2.5 py-2 text-left text-xs font-bold text-ink-700 dark:border-ink-700 dark:text-ink-200">Site brochure</th>
             <th scope="col" className="border border-ink-200 px-2 py-2 text-xs font-bold text-ink-700 dark:border-ink-700 dark:text-ink-200"><span className="sr-only">Actions</span></th>
           </tr>
         </thead>
         <tbody>
-          {loading && !rows.length ? <tr><td colSpan={COLUMNS.length + 3} className="py-12 text-center text-ink-400"><Loader2 size={20} className="mx-auto animate-spin" /></td></tr>
-            : rows.length === 0 ? <tr><td colSpan={COLUMNS.length + 3} className="py-12 text-center text-sm text-ink-400">Abhi koi property nahi. "Nayi row" dabakar likhna shuru karein, ya Excel import karein.</td></tr>
+          {loading && !rows.length ? <tr><td colSpan={COLUMNS.length + 4} className="py-12 text-center text-ink-400"><Loader2 size={20} className="mx-auto animate-spin" /></td></tr>
+            : rows.length === 0 ? <tr><td colSpan={COLUMNS.length + 4} className="py-12 text-center text-sm text-ink-400">Abhi koi property nahi. "Nayi row" dabakar likhna shuru karein, ya Excel import karein.</td></tr>
             : rows.map((property, rowIndex) => <tr key={property._id} className="group">
               <th scope="row" className="sticky left-0 z-10 border border-ink-200 bg-ink-50 px-2 text-center text-[11px] font-medium text-ink-400 dark:border-ink-700 dark:bg-ink-800">{(pagination.page - 1) * 100 + rowIndex + 2}</th>
               {COLUMNS.map((column) => {
@@ -177,6 +244,13 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
                         className={cellClass(property, column)} />}
                 </td>;
               })}
+              <td className="border border-ink-200 px-2 dark:border-ink-700">
+                <button type="button" onClick={() => setPhotosFor(property)} className="flex items-center gap-1.5 py-1 text-xs font-semibold text-brand-600 hover:underline" title="Photos upload / dekhein">
+                  {(property.images || []).length
+                    ? <><span className="flex -space-x-1.5">{property.images.slice(0, 3).map((url) => <img key={url} src={url} alt="" loading="lazy" className="h-6 w-6 rounded border border-white object-cover dark:border-ink-900" />)}</span><span>{property.images.length}</span></>
+                    : <><ImagePlus size={14} /> Add</>}
+                </button>
+              </td>
               <td className="border border-ink-200 px-2 dark:border-ink-700">{(() => { const b = siteBrochures[siteKey(property.projectName)]; return b
                 ? <a href={b.url} target="_blank" rel="noreferrer" className="inline-flex max-w-[150px] items-center gap-1 truncate text-xs font-semibold text-emerald-700 hover:underline dark:text-emerald-300" title={b.label || b.name}><FileText size={13} className="shrink-0" />{b.count > 1 ? `${b.count} PDFs` : 'PDF'}</a>
                 : <button type="button" onClick={() => onAddBrochure?.(property.projectName)} disabled={!property.projectName} className="text-xs font-semibold text-brand-600 hover:underline disabled:opacity-40">+ Add</button>; })()}</td>
@@ -185,6 +259,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
         </tbody>
       </table>
     </div>
+    {photosFor && <PhotosModal property={photosFor} onClose={() => setPhotosFor(null)} onSaved={(updated) => { setRows((list) => list.map((row) => (row._id === updated._id ? { ...row, ...updated } : row))); setPhotosFor((cur) => (cur ? { ...cur, ...updated } : cur)); onChanged?.(); }} />}
     <div className="flex items-center justify-between text-xs text-ink-500 dark:text-ink-400">
       <span>{pagination.total || 0} rows · apne-aap save hota hai</span>
       {pagination.totalPages > 1 && <div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-ink-200 px-3 py-1.5 disabled:opacity-40 dark:border-ink-700">Prev</button><span>Page {pagination.page} / {pagination.totalPages}</span><button type="button" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)} className="rounded-lg border border-ink-200 px-3 py-1.5 disabled:opacity-40 dark:border-ink-700">Next</button></div>}

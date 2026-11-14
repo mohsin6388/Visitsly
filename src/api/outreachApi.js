@@ -7,7 +7,8 @@ export const outreachApi = {
 
 export const campaignApi = {
   launch: (payload) => api.post('/campaigns/launch', payload).then((r) => r.data),
-  list: () => api.get('/campaigns').then((r) => r.data),
+  list: (params) => api.get('/campaigns', { params }).then((r) => r.data),
+  get: (id) => api.get(`/campaigns/${id}`).then((r) => r.data),
   pause: (id) => api.post(`/campaigns/${id}/pause`).then((r) => r.data),
   resume: (id) => api.post(`/campaigns/${id}/resume`).then((r) => r.data),
   cancel: (id) => api.post(`/campaigns/${id}/cancel`).then((r) => r.data),

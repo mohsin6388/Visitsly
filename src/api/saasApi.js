@@ -3,8 +3,7 @@ import api from './axios.js';
 const data = (r) => r.data;
 
 export const publicApi = {
-  plans: (region) => api.get('/public/plans', { params: region ? { region } : {} }).then(data),
-  messagingPolicy: () => api.get('/public/messaging-policy').then(data),
+  plans: (params) => api.get('/public/plans', { params }).then(data),
   branding: (host) => api.get('/public/branding', { params: { host } }).then(data),
   formInfo: (key) => api.get(`/inbound/form/${key}`).then(data),
   submitForm: (key, payload) => api.post(`/inbound/leads/${key}`, payload).then(data),
@@ -25,6 +24,10 @@ export const orgApi = {
   invite: (payload) => api.post('/org/team', payload).then(data),
   updateMember: (id, payload) => api.patch(`/org/team/${id}`, payload).then(data),
   resetMemberPassword: (id) => api.post(`/org/team/${id}/reset-password`).then(data),
+  bulkInvite: (members) => api.post('/org/team/bulk', { members }).then(data),
+  setMemberPassword: (id, password) => api.post(`/org/team/${id}/set-password`, { password }).then(data),
+  whatsappHealth: () => api.get('/org/whatsapp/health').then(data),
+  fixWhatsappWebhook: () => api.post('/org/whatsapp/fix-webhook').then(data),
 };
 
 export const billingApi = {
@@ -33,6 +36,14 @@ export const billingApi = {
   checkout: (plan, cycle) => api.post('/billing/checkout', { plan, cycle }).then(data),
   verify: (payload) => api.post('/billing/verify', payload).then(data),
   cancel: () => api.post('/billing/cancel').then(data),
+  addonCheckout: (addon, quantity) => api.post('/billing/addon-checkout', { addon, quantity }).then(data),
+  addonVerify: (payload) => api.post('/billing/addon-verify', payload).then(data),
+};
+
+export const budgetApi = {
+  get: () => api.get('/reports/budget').then(data),
+  update: (payload) => api.patch('/reports/budget', payload).then(data),
+  sendReport: () => api.post('/reports/budget/send').then(data),
 };
 
 
@@ -53,6 +64,7 @@ export const growthApi = {
   markBooked: (leadId, payload) => api.post(`/org/deals/${leadId}`, payload).then(data),
   addNumber: (payload) => api.post('/org/whatsapp/numbers', payload).then(data),
   removeNumber: (id) => api.delete(`/org/whatsapp/numbers/${id}`).then(data),
+  testLead: (payload) => api.post('/org/lead-sources/test', payload).then(data),
 };
 
 export const quoteApi = {
@@ -74,4 +86,5 @@ export const voiceApi = {
   update: (payload) => api.patch('/voice/settings', payload).then(data),
   call: (leadId) => api.post(`/voice/call/${leadId}`).then(data),
   calls: (params) => api.get('/voice/calls', { params }).then(data),
+  testCall: (phone) => api.post('/voice/test-call', { phone }).then(data),
 };

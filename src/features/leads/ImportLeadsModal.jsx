@@ -1,5 +1,6 @@
 import { useMemo, useRef, useState } from 'react';
-import { X, UploadCloud, CheckCircle2, AlertTriangle, Copy, FileSpreadsheet, Loader2, ArrowLeft, ArrowRight, Users, Download } from 'lucide-react';
+import { X, UploadCloud, CheckCircle2, AlertTriangle, Copy, FileSpreadsheet, Loader2, ArrowLeft, ArrowRight, Users, Download, MessageCircle, Mail, CalendarClock } from 'lucide-react';
+import CampaignLauncher from '../outreach/CampaignLauncher.jsx';
 import { leadApi } from '../../api/leadApi.js';
 import { downloadSampleSheet } from '../../lib/sampleSheet.js';
 
@@ -13,6 +14,8 @@ export default function ImportLeadsModal({ onClose, onImported }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  const [launcher, setLauncher] = useState(null); // 'whatsapp' | 'email'
+  const [scheduled, setScheduled] = useState({});
   const validRows = useMemo(() => rows.filter((row) => row.status === 'valid' && (importChannel === 'both' ? (row.phone || row.email) : importChannel === 'whatsapp' ? row.phone : row.email)), [rows, importChannel]);
 
   const handleFile = async (file) => {
@@ -43,7 +46,9 @@ export default function ImportLeadsModal({ onClose, onImported }) {
     setError('');
     try {
       const response = await leadApi.importConfirm(validRows.map(({ status, errors, isDuplicate, duplicateReason, rowNumber, ...row }) => ({ ...row, phone: importChannel === 'email' ? '' : row.phone, email: importChannel === 'whatsapp' ? '' : row.email, source: `file_import_${importChannel}`, importFile: fileName })));
-      setResult(response.data || {});
+      const data = response.data || {};
+      const ids = [...new Set([...(data.leadIds || []), ...(data.existingLeadIds || [])].map(String))];
+      setResult({ ...data, ids });
       setStep('done');
       onImported?.();
     } catch (err) {
@@ -62,7 +67,7 @@ export default function ImportLeadsModal({ onClose, onImported }) {
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3 sm:p-5">
     <div className="flex max-h-[94vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-ink-900">
       <div className="flex items-start justify-between gap-4 border-b border-ink-100 px-5 py-4 dark:border-ink-800 sm:px-6">
-        <div><p className="text-xs font-bold uppercase tracking-widest text-brand-600">Leads workspace</p><h2 className="mt-1 font-display text-xl font-bold text-ink-900 dark:text-white">{step === 'upload' ? 'Upload lead data' : step === 'preview' ? 'Review your data' : 'Import complete'}</h2><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Upload contacts once; choose which channel data to keep.</p></div>
+        <div><p className="text-xs font-bold uppercase tracking-widest text-brand-600">Leads workspace</p><h2 className="mt-1 font-display text-xl font-bold text-ink-900 dark:text-white">{step === 'upload' ? 'Upload Data' : step === 'preview' ? 'Data check karein' : 'Upload complete'}</h2><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Upload contacts once; choose which channel data to keep.</p></div>
         <button onClick={onClose} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 hover:text-ink-800 dark:hover:bg-ink-800 dark:hover:text-white" aria-label="Close import"><X size={20} /></button>
       </div>
 
@@ -96,7 +101,28 @@ export default function ImportLeadsModal({ onClose, onImported }) {
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-ink-100 p-5 dark:border-ink-800 sm:px-6"><p className="text-sm text-ink-500 dark:text-ink-400">{validRows.length} contacts will be saved ({importChannel === 'both' ? 'WhatsApp + Email' : importChannel === 'whatsapp' ? 'WhatsApp only' : 'Email only'}). <b>No messages will be sent.</b></p><div className="flex gap-2"><button onClick={() => { setStep('upload'); setRows([]); setSummary(null); setError(''); }} className="btn-secondary flex items-center gap-1.5"><ArrowLeft size={15} /> Choose another file</button><button onClick={importRows} disabled={!validRows.length || loading} className="btn-primary flex items-center gap-2">{loading ? <Loader2 size={16} className="animate-spin" /> : <ArrowRight size={16} />}{loading ? 'Importing…' : `Import ${validRows.length} contacts`}</button></div></div>
       </div>}
 
-      {step === 'done' && <div className="p-8 text-center"><span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"><CheckCircle2 size={32} /></span><h3 className="mt-4 font-display text-xl font-bold text-ink-900 dark:text-white">Your data is imported</h3><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-500 dark:text-ink-400"><b>{Number(result?.insertedCount || 0).toLocaleString('en-IN')}</b> contacts saved{result?.skipped ? `, ${result.skipped} duplicates skipped` : ''}. Head to WhatsApp or Email when you are ready to launch a campaign.</p><div className="mt-6 flex flex-wrap justify-center gap-2"><button onClick={onClose} className="btn-secondary">Close</button><button onClick={() => { onClose(); window.location.assign('/outreach/whatsapp'); }} className="btn-primary flex items-center gap-2"><Users size={16} /> Go to campaigns</button></div></div>}
+      {step === 'done' && <div className="overflow-y-auto p-6 sm:p-8">
+        <div className="text-center">
+          <span className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"><CheckCircle2 size={32} /></span>
+          <h3 className="mt-4 font-display text-xl font-bold text-ink-900 dark:text-white">Data upload ho gaya</h3>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-6 text-ink-500 dark:text-ink-400"><b>{Number(result?.insertedCount || 0).toLocaleString('en-IN')}</b> naye contacts save hue{result?.skipped ? `, ${result.skipped} pehle se the` : ''}.</p>
+        </div>
+        <div className="mx-auto mt-6 max-w-xl rounded-2xl border border-brand-200 bg-brand-50/60 p-5 dark:border-brand-900 dark:bg-brand-950/20">
+          <p className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><CalendarClock size={18} className="text-brand-600" /> Kya in {(result?.ids?.length || 0).toLocaleString('en-IN')} contacts ko message schedule karna hai?</p>
+          <p className="mt-1 text-sm text-ink-600 dark:text-ink-300">Date, time aur kitne din mein bhejna hai — aap chun sakte hain. Campaign page par us din ka campaign apne aap dikhega.</p>
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
+            <button type="button" disabled={!result?.ids?.length || importChannel === 'email'} onClick={() => setLauncher('whatsapp')} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-40">
+              <MessageCircle size={17} /> {scheduled.whatsapp ? 'WhatsApp schedule ho gaya ✓' : 'WhatsApp par schedule karein'}
+            </button>
+            <button type="button" disabled={!result?.ids?.length || importChannel === 'whatsapp'} onClick={() => setLauncher('email')} className="flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-3 text-sm font-semibold text-white hover:bg-sky-700 disabled:opacity-40">
+              <Mail size={17} /> {scheduled.email ? 'Email schedule ho gaya ✓' : 'Email par schedule karein'}
+            </button>
+          </div>
+          <button type="button" onClick={onClose} className="mt-3 w-full text-center text-sm font-semibold text-ink-500 hover:text-ink-800 dark:hover:text-ink-200">Abhi nahi, baad mein</button>
+        </div>
+        <div className="mt-6 flex flex-wrap justify-center gap-2"><button onClick={onClose} className="btn-secondary">Close</button><button onClick={() => { onClose(); window.location.assign('/outreach/whatsapp'); }} className="btn-secondary flex items-center gap-2"><Users size={16} /> Campaigns dekhein</button></div>
+      </div>}
     </div>
+    {launcher && <CampaignLauncher key={launcher} channel={launcher} initialLeadIds={result?.ids || []} lockSelection initialName={`${fileName.replace(/\.(csv|xlsx)$/i, '')} · ${launcher === 'whatsapp' ? 'WhatsApp' : 'Email'}`.slice(0, 120)} onClose={() => setLauncher(null)} onLaunched={() => { setScheduled((p) => ({ ...p, [launcher]: true })); setTimeout(() => setLauncher(null), 900); }} />}
   </div>;
 }

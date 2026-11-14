@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import {
   Bot,
   Timer,
@@ -17,7 +18,6 @@ import {
 import { settingsApi } from '../../api/settingsApi.js';
 import { whatsappApi } from '../../api/whatsappApi.js';
 import { emailApi } from '../../api/emailApi.js';
-import MessagingComplianceCard from './MessagingComplianceCard.jsx';
 
 /** Small reusable ON/OFF switch — no design-system toggle exists yet in this app. */
 function Toggle({ checked, onChange, disabled }) {
@@ -42,6 +42,57 @@ function Toggle({ checked, onChange, disabled }) {
 }
 
 const DELAY_OPTIONS = [2, 5, 10];
+
+function OwnerAlerts({ settings, setSettings, patchSettings, saving }) {
+  const [templates, setTemplates] = useState([]);
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState('');
+  useEffect(() => { whatsappApi.templates().then((r) => setTemplates(r.data?.templates || [])).catch(() => {}); }, []);
+  const alertOn = { hotLead: true, visitBooked: true, visitConfirmed: true, ...(settings?.alertOn || {}) };
+  const tpl = settings?.alertTemplate || {};
+  const bodyText = (t) => (t?.components || []).find((c) => String(c.type).toUpperCase() === 'BODY')?.text || '';
+  const vars = (t) => Math.max(0, ...[...String(bodyText(t)).matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])));
+  const test = async () => {
+    setTesting(true); setTestMsg('');
+    try { const r = await settingsApi.testAlert(); setTestMsg(r.message); } catch (e) { setTestMsg(e?.response?.data?.message || 'Test alert nahi gaya'); } finally { setTesting(false); }
+  };
+  return (
+    <div className="card mt-4">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><BellRing size={20} /></span>
+        <div className="min-w-0 flex-1">
+          <h2 className="text-base font-semibold text-ink-900 dark:text-white">Aapke WhatsApp par turant alert</h2>
+          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Lead HOT hote hi, site visit book / confirm hote hi aapke number par WhatsApp aayega — customer ka naam, number aur requirement ke saath.</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Aapka WhatsApp number (ek se zyada ho to comma lagayein)</label>
+              <input className="input-field" inputMode="tel" placeholder="9876543210, 9123456780" value={settings?.leadAlertPhone || ''} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertPhone: e.target.value }))} />
+              <p className="mt-1 text-[11px] text-ink-400">Khali chhodenge to company ka phone number use hoga.</p>
+            </div>
+            <div><label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Lead alert kab</label><select className="input-field" value={settings?.leadAlertLevel || 'hot'} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertLevel: e.target.value }))}><option value="hot">Sirf Hot lead par</option><option value="hot_warm">Hot ya Warm lead par</option></select></div>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-3">
+            {[['hotLead', '🔥 Hot lead'], ['visitBooked', '📅 Visit book hui'], ['visitConfirmed', '✅ Visit confirm / cancel']].map(([k, label]) => (
+              <label key={k} className="flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-sm dark:border-ink-700"><input type="checkbox" checked={alertOn[k] !== false} onChange={(e) => setSettings((prev) => ({ ...prev, alertOn: { ...alertOn, [k]: e.target.checked } }))} />{label}</label>
+            ))}
+          </div>
+          <label className="mt-3 block text-xs font-semibold text-ink-600 dark:text-ink-300">Alert template (jab aapke number ka 24 ghante wala window band ho)
+            <select className="input-field mt-1" value={tpl.name ? `${tpl.name}::${tpl.language}` : ''} onChange={(e) => { const t = templates.find((x) => `${x.name}::${x.language}` === e.target.value); setSettings((prev) => ({ ...prev, alertTemplate: t ? { name: t.name, language: t.language, variableCount: Math.min(5, vars(t)) } : { name: '', language: '', variableCount: 0 } })); }}>
+              <option value="">Koi nahi (sirf free message + email backup)</option>
+              {templates.map((t) => <option key={`${t.name}::${t.language}`} value={`${t.name}::${t.language}`}>{t.name} · {t.language}</option>)}
+            </select>
+            <span className="mt-1 block font-normal text-ink-400">Tip: Apne personal number se business WhatsApp par ek baar "Hi" bhej dijiye — 24 ghante tak alerts free mein aayenge. Template se alerts kabhi bhi aate hain. Variables: {'{{1}}'} naam · {'{{2}}'} phone · {'{{3}}'} email · {'{{4}}'} score · {'{{5}}'} summary.</span>
+          </label>
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            <button type="button" disabled={saving} onClick={() => patchSettings({ leadAlertPhone: String(settings?.leadAlertPhone || '').trim(), leadAlertLevel: settings?.leadAlertLevel === 'hot_warm' ? 'hot_warm' : 'hot', alertOn, alertTemplate: { name: settings?.alertTemplate?.name || '', language: settings?.alertTemplate?.language || '', variableCount: settings?.alertTemplate?.variableCount || 0 } })} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
+            <button type="button" disabled={testing} onClick={test} className="btn-secondary">{testing ? 'Bhej rahe hain…' : 'Test alert bhejein'}</button>
+          </div>
+          {testMsg && <p className="mt-2 rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-700 dark:bg-ink-800 dark:text-ink-200">{testMsg}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState(null);
@@ -72,8 +123,8 @@ export default function SettingsPage() {
   const fetchEmailStatus = useCallback(async () => {
     setEmailStatusLoading(true);
     try {
-      const res = await emailApi.status();
-      setEmailStatus(res.data);
+      const res = await emailApi.account();
+      setEmailStatus(res.data.account);
     } catch {
       setEmailStatus(null);
     } finally {
@@ -200,37 +251,6 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* AI Reply Delay */}
-      <div className="card mt-4">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
-            <Timer size={20} />
-          </span>
-          <div className="flex-1">
-            <h2 className="text-base font-semibold text-ink-900 dark:text-white">AI Reply Delay</h2>
-            <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">
-              Reply bhejne se pehle AI kitni der rukega — zyada natural feel ke liye.
-            </p>
-            <div className="mt-3 flex gap-2">
-              {DELAY_OPTIONS.map((secs) => (
-                <button
-                  key={secs}
-                  disabled={saving}
-                  onClick={() => patchSettings({ aiReplyDelaySeconds: secs })}
-                  className={`rounded-full px-4 py-1.5 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-60 ${
-                    settings?.aiReplyDelaySeconds === secs
-                      ? 'bg-brand-600 text-white'
-                      : 'bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700'
-                  }`}
-                >
-                  {secs}s
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
       {/* Human Takeover */}
       <div className="card mt-4">
         <div className="flex items-start justify-between gap-4">
@@ -259,48 +279,20 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* Lead temperature alerts */}
-      <div className="card mt-4">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><BellRing size={20} /></span>
-          <div className="min-w-0 flex-1">
-            <h2 className="text-base font-semibold text-ink-900 dark:text-white">Alert your lead on your number</h2>
-            <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Jab AI conversation analyze karke lead ko Hot (default) ya selected Warm category mein score kare, contact details aur score aapke WhatsApp number par bhejne ki koshish hogi.</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
-              <div><label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Your WhatsApp number (with country code)</label><input className="input-field" inputMode="tel" autoComplete="tel" placeholder="919876543210" value={settings?.leadAlertPhone || ''} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertPhone: e.target.value }))} /><p className="mt-1 text-[11px] text-ink-400">Example India: 919876543210. Do not include the + sign.</p></div>
-              <div><label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Alert when lead is</label><select className="input-field" value={settings?.leadAlertLevel || 'hot'} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertLevel: e.target.value }))}><option value="hot">Hot only (default)</option><option value="hot_warm">Hot or Warm</option></select></div>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center justify-between gap-2"><p className="max-w-xl text-xs leading-5 text-ink-500 dark:text-ink-400">Important: outside WhatsApp's 24-hour support window, Meta requires an approved alert template. Configure <code>META_WHATSAPP_LEAD_ALERT_TEMPLATE_NAME</code> on the backend for reliable alerts.</p><button type="button" disabled={saving} onClick={() => patchSettings({ leadAlertPhone: String(settings?.leadAlertPhone || '').trim(), leadAlertLevel: settings?.leadAlertLevel === 'hot_warm' ? 'hot_warm' : 'hot' })} className="btn-primary">{saving ? 'Saving…' : 'Save alert settings'}</button></div>
-          </div>
-        </div>
-      </div>
+      {/* Owner WhatsApp alerts */}
+      <OwnerAlerts settings={settings} setSettings={setSettings} patchSettings={patchSettings} saving={saving} />
 
-      {/* Brevo / email sending settings */}
+      {/* Email sending: client ka apna official email */}
       <div className="card mt-4">
-        <div className="flex items-start gap-3">
-          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
-            <Mail size={20} />
-          </span>
-          <div className="min-w-0 flex-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-base font-semibold text-ink-900 dark:text-white">Bulk Email & Reply Tracking</h2>
-              {emailStatusLoading ? <span className="text-xs text-ink-400">Checking…</span> : (
-                <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${emailStatus?.configured ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300'}`}>
-                  {emailStatus?.configured ? 'Brevo sending configured' : 'Setup required'}
-                </span>
-              )}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"><Mail size={20} /></span>
+            <div>
+              <h2 className="text-base font-semibold text-ink-900 dark:text-white">Email</h2>
+              <p className="text-sm text-ink-500 dark:text-ink-400">{emailStatusLoading ? 'Checking…' : emailStatus?.fromEmail ? `${emailStatus.fromEmail} se campaign jati hai` : 'Official email abhi connect nahi hai'}</p>
             </div>
-            <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Bulk emails Brevo HTTP API se bheje jaate hain. API key sirf backend environment variables mein rakhein.</p>
-            {emailStatusLoading ? <div className="mt-3 flex items-center gap-2 text-sm text-ink-400"><Loader2 size={16} className="animate-spin" /> Checking email provider…</div> : (
-              <>
-                <div className="mt-4 space-y-2 border-t border-ink-100 pt-3 dark:border-ink-800">
-                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm text-ink-500 dark:text-ink-400">From address</span><span className="break-all text-sm font-semibold text-ink-800 dark:text-ink-100">{emailStatus?.fromAddress || 'BREVO_FROM_EMAIL not configured'}</span></div>
-                  <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm text-ink-500 dark:text-ink-400">Inbound customer replies</span><span className={`text-sm font-semibold ${emailStatus?.inboundRepliesConfigured ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-300'}`}>{emailStatus?.inboundRepliesConfigured ? 'Configured' : 'Needs setup'}</span></div>
-                </div>
-                {!emailStatus?.configured || !emailStatus?.inboundRepliesConfigured ? <div className="mt-3 flex gap-2 rounded-lg bg-amber-50 p-3 text-xs leading-5 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200"><AlertTriangle size={16} className="mt-0.5 flex-shrink-0" /><span>{emailStatus?.note || 'Email status API unavailable. Check backend and provider configuration.'} Read EMAIL_SETUP.md in the backend package for the DNS, webhook and environment setup.</span></div> : <p className="mt-3 text-xs text-green-700 dark:text-green-300">Sending and inbound reply tracking variables are present. Verify the sender domain, inbound MX records and both webhooks in Brevo.</p>}
-              </>
-            )}
           </div>
+          <Link to="/email/setup" className="btn-secondary">{emailStatus?.fromEmail ? 'Manage' : 'Connect email'}</Link>
         </div>
       </div>
 
@@ -379,8 +371,6 @@ export default function SettingsPage() {
           </div>
         )}
       </div>
-
-      <MessagingComplianceCard />
     </div>
   );
 }

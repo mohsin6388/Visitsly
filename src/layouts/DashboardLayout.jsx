@@ -1,21 +1,22 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, Suspense } from 'react';
 import { Link, Navigate, NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, Users, Building2, CalendarCheck, Clock, Settings as SettingsIcon,
   UserCircle, LogOut, Moon, Sun, Menu, Mail, MessageCircle, Loader2, ChevronDown,
   MessageSquare, Flame, Smartphone, PanelLeftClose, PanelLeftOpen, FileText,
-  Briefcase, CreditCard, UsersRound, Rocket, Link2, TrendingUp, BarChart3, Shuffle, FileSpreadsheet, Handshake, PhoneCall,
+  Briefcase, CreditCard, UsersRound, Rocket, Link2, TrendingUp, BarChart3, Handshake, Settings2, ListChecks,
 } from 'lucide-react';
 import { useAuthStore, useOrgRole } from '../store/authStore.js';
 import { orgApi } from '../api/saasApi.js';
 import SubscriptionBanner from '../features/saas/SubscriptionBanner.jsx';
 import { authApi } from '../api/authApi.js';
 import { useOutreachSummaryLive } from '../hooks/useOutreachLive.js';
+import { Toaster, toast } from '../components/ui/index.jsx';
+import { getSocket } from '../lib/socket.js';
 
 const NAV_GROUPS = [
   { type: 'link', to: '/dashboard', label: 'Overview', icon: LayoutDashboard },
-  { type: 'link', to: '/leads', label: 'All leads', icon: Users },
-  { type: 'link', to: '/qualified-leads', label: 'Qualified leads', icon: Flame },
+  { type: 'link', to: '/leads', label: 'Upload Data', icon: Users },
   {
     type: 'group', key: 'whatsapp', label: 'WhatsApp AI', icon: MessageCircle, children: [
       { to: '/whatsapp', label: 'Connect number', icon: Smartphone },
@@ -23,15 +24,15 @@ const NAV_GROUPS = [
       { to: '/outreach/whatsapp', label: 'Campaigns', icon: Rocket, channel: 'whatsapp', roles: ['owner', 'manager'] },
       { to: '/whatsapp/leads', label: 'WhatsApp leads', icon: Flame },
       { to: '/whatsapp/templates', label: 'Templates', icon: FileText, roles: ['owner', 'manager'] },
+      { to: '/whatsapp/visit-confirmation', label: 'Visit confirmation', icon: CalendarCheck, roles: ['owner', 'manager'] },
     ],
   },
   {
     type: 'group', key: 'email', label: 'Email automation', icon: Mail, children: [
-      { to: '/email/conversations', label: 'Inbox & replies', icon: MessageSquare },
+      { to: '/email/setup', label: 'Setup', icon: Settings2 },
       { to: '/outreach/email', label: 'Campaigns', icon: Mail, channel: 'email', roles: ['owner', 'manager'] },
-      { to: '/email/leads', label: 'Email leads', icon: Flame },
       { to: '/email/templates', label: 'Templates', icon: FileText, roles: ['owner', 'manager'] },
-      { to: '/email/details', label: 'Delivery details', icon: PanelLeftOpen },
+      { to: '/email/details', label: 'Email details', icon: ListChecks },
     ],
   },
   { type: 'link', to: '/properties', label: 'Properties', icon: Building2 },
@@ -39,17 +40,13 @@ const NAV_GROUPS = [
   { type: 'link', to: '/follow-ups', label: 'Follow-ups', icon: Clock },
   {
     type: 'group', key: 'growth', label: 'Growth tools', icon: TrendingUp, children: [
-      { to: '/reports', label: 'Reports & analytics', icon: BarChart3, roles: ['owner', 'manager'] },
+      { to: '/reports', label: 'Reports & budget', icon: BarChart3, roles: ['owner', 'manager'] },
       { to: '/lead-sources', label: 'Lead sources', icon: Link2, roles: ['owner', 'manager'] },
-      { to: '/routing', label: 'Lead routing', icon: Shuffle, roles: ['owner', 'manager'] },
-      { to: '/quotes', label: 'Cost sheets', icon: FileSpreadsheet },
       { to: '/channel-partners', label: 'Channel partners', icon: Handshake, roles: ['owner', 'manager'] },
-      { to: '/ai-calling', label: 'AI calling', icon: PhoneCall, roles: ['owner', 'manager'] },
     ],
   },
   {
     type: 'group', key: 'company', label: 'Workspace & billing', icon: Briefcase, children: [
-      { to: '/get-started', label: 'Setup checklist', icon: Rocket },
       { to: '/team', label: 'Team & members', icon: UsersRound, roles: ['owner', 'manager'] },
       { to: '/billing', label: 'Plan & billing', icon: CreditCard, roles: ['owner'] },
     ],
@@ -63,7 +60,7 @@ const NAV_GROUPS = [
 ];
 
 const GROUP_KEYS = { whatsapp: false, email: false, growth: false, company: false, account: false };
-const GROWTH_PATHS = ['/reports', '/lead-sources', '/routing', '/quotes', '/channel-partners', '/ai-calling'];
+const GROWTH_PATHS = ['/reports', '/lead-sources', '/channel-partners'];
 
 function OutreachBadge({ stats }) {
   if (!stats || !stats.total) return null;
@@ -78,7 +75,7 @@ export default function DashboardLayout() {
   const [darkMode, setDarkMode] = useState(() => document.documentElement.classList.contains('dark'));
   const [expanded, setExpanded] = useState(() => {
     const path = window.location.pathname;
-    return { whatsapp: path.startsWith('/whatsapp') || path === '/outreach/whatsapp', email: path.startsWith('/email') || path === '/outreach/email', growth: GROWTH_PATHS.includes(path), company: ['/get-started', '/team', '/billing'].includes(path), account: ['/profile', '/settings'].includes(path) };
+    return { whatsapp: path.startsWith('/whatsapp') || path === '/outreach/whatsapp', email: path.startsWith('/email') || path === '/outreach/email', growth: GROWTH_PATHS.includes(path), company: ['/team', '/billing'].includes(path), account: ['/profile', '/settings'].includes(path) };
   });
   const { user, clearSession, org, setOrg, support } = useAuthStore();
   const orgRole = useOrgRole();
@@ -92,16 +89,26 @@ export default function DashboardLayout() {
     const t = setInterval(load, 5 * 60 * 1000);
     return () => clearInterval(t);
   }, [setOrg]);
+  // Instant on-screen alert for hot leads / booked & confirmed visits / budget.
+  useEffect(() => {
+    const socket = getSocket();
+    const onNotification = (p) => {
+      const labels = { hot_lead: '🔥 Nayi hot lead aayi hai — AI inbox dekhein', visit_booked: '📅 Nayi site visit book hui', visit_confirmed: '✅ Ek visit confirm hui', visit_declined: '⚠️ Ek customer visit par nahi aa payega', budget: '💰 Budget alert — Reports → Budget dekhein' };
+      if (p?.kind && labels[p.kind]) toast.info(labels[p.kind]);
+    };
+    socket.on('notification:new', onNotification);
+    return () => socket.off('notification:new', onNotification);
+  }, []);
   const navigate = useNavigate();
   const location = useLocation();
   const whatsappConnected = org?.whatsapp?.status === 'connected' && Boolean(org?.whatsapp?.phoneNumberId);
   // New workspaces complete WhatsApp setup before accessing the rest of the
   // operational onboarding routes. Settings/billing/profile and WhatsApp setup
   // stay accessible so Meta failures never trap the user without a recovery path.
-  const routesAvailableBeforeWhatsApp = ['/get-started', '/whatsapp', '/profile', '/settings', '/billing', '/team'];
+  const routesAvailableBeforeWhatsApp = ['/get-started', '/whatsapp', '/profile', '/settings', '/billing', '/team', '/lead-sources'];
   const canAccessBeforeWhatsApp = routesAvailableBeforeWhatsApp.includes(location.pathname);
   if (org && !support && !whatsappConnected && !canAccessBeforeWhatsApp) {
-    return <Navigate to="/get-started" replace state={{ onboardingRequired: true }} />;
+    return <Navigate to="/whatsapp" replace state={{ onboardingRequired: true }} />;
   }
 
   const toggleDarkMode = () => {
@@ -177,11 +184,12 @@ export default function DashboardLayout() {
         {org && !(org.whatsapp?.status === 'connected' && org.whatsapp?.phoneNumberId) && !['/get-started', '/whatsapp'].includes(location.pathname) && (
           <div className="mb-5 flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50/90 p-4 text-sm text-amber-900 shadow-sm dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200 sm:flex-row sm:items-center sm:justify-between">
             <div><p className="font-semibold">Complete setup: connect WhatsApp first</p><p className="mt-0.5 text-xs sm:text-sm">Your leads, property inventory and first-message onboarding steps unlock after WhatsApp is connected.</p></div>
-            <Link to="/get-started" className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white no-underline transition hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-950">Continue setup <span aria-hidden="true">→</span></Link>
+            <Link to="/whatsapp" className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white no-underline transition hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-950">Continue setup <span aria-hidden="true">→</span></Link>
           </div>
         )}
-        <Outlet />
+        <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin text-ink-400" /></div>}><Outlet /></Suspense>
       </main>
     </div>
+    <Toaster />
   </div>;
 }

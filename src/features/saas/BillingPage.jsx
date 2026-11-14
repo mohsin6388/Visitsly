@@ -1,807 +1,268 @@
-// import { useState } from 'react';
-// import { useQuery, useQueryClient } from '@tanstack/react-query';
-// import { Check, CreditCard, Loader2, Receipt, AlertTriangle, Phone, Mail } from 'lucide-react';
-// import { billingApi, growthApi } from '../../api/saasApi.js';
-// import { useAuthStore } from '../../store/authStore.js';
-// import { inr, fmtDate, StatusPill, UsageBar, LIMIT_LABEL, loadRazorpay } from '../../lib/saas.jsx';
+import { useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Loader2, Check, CreditCard, Receipt, AlertTriangle, Phone, Mail, Gift, Sparkles, Users, Smartphone, Bot, PhoneCall, RotateCcw, Plus, Minus } from 'lucide-react';
+import { billingApi, growthApi } from '../../api/saasApi.js';
+import { useAuthStore } from '../../store/authStore.js';
+import { fmtDate, StatusPill, UsageBar, LIMIT_LABEL, loadRazorpay, errText } from '../../lib/saas.jsx';
+import { showDialog, toast, Skeleton } from '../../components/ui/index.jsx';
 
-// const ADDON_KEYS = [
-//   ['extraUser', 'extraUsers', 'Extra user'],
-//   ['extraNumber', 'extraNumbers', 'Extra WhatsApp number'],
-//   ['extraAiConversations', 'aiPacks', '1,000 AI conversations'],
-//   ['voiceMinute', null, 'AI voice calling'],
-//   ['leadRevival', null, 'Purani leads revive campaign'],
-// ];
+export function money(n, currency = 'INR') {
+  const v = Number(n) || 0;
+  try {
+    return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en', { style: 'currency', currency, maximumFractionDigits: v % 1 ? 2 : 0 }).format(v);
+  } catch {
+    return `${currency} ${v}`;
+  }
+}
 
-// function AddonsSection({ org, addons, onMessage }) {
-//   const request = async (key, label) => {
-//     const qty = key === 'voiceMinute' || key === 'leadRevival' ? 1 : Number(window.prompt(`${label} — kitne chahiye?`, '1'));
-//     if (!qty) return;
-//     try {
-//       const res = await growthApi.request({ type: key === 'voiceMinute' ? 'voice' : 'addon', addon: key, quantity: qty });
-//       onMessage({ tone: 'ok', text: res.message });
-//     } catch (err) {
-//       onMessage({ tone: 'error', text: err?.response?.data?.message || 'Request nahi gayi' });
-//     }
-//   };
-//   return (
-//     <section className="card min-w-0">
-//       <div className="flex flex-wrap items-center justify-between gap-2">
-//         <h2 className="font-semibold text-ink-900 dark:text-white">Add-ons</h2>
-//         {org.usage?.voiceMinutes > 0 && <span className="text-xs text-ink-500">AI calling is mahine: {org.usage.voiceMinutes} min</span>}
-//       </div>
-//       <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-//         {ADDON_KEYS.map(([key, field, label]) => {
-//           const a = addons?.[key];
-//           const have = field ? org.addons?.[field] || 0 : 0;
-//           return (
-//             <li key={key} className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 p-3 dark:border-ink-800">
-//               <span className="min-w-0 text-sm"><span className="block font-medium text-ink-800 dark:text-ink-100">{label}</span><span className="text-xs text-ink-500">{a ? `${inr(a.price)} / ${a.unit === 'month' ? 'mahina' : a.unit === 'minute' ? 'minute' : a.unit === 'once' ? 'ek baar' : 'pack'}` : ''}{have ? ` · aapke paas ${have}` : ''}</span></span>
-//               <button className="btn-secondary shrink-0 !px-3 !py-1.5 text-xs" onClick={() => request(key, label)}>Request</button>
-//             </li>
-//           );
-//         })}
-//       </ul>
-//       <p className="mt-2 text-xs text-ink-400">Request ke baad Visitsly team payment link bhejegi; payment hote hi add-on turant chalu.</p>
-//     </section>
-//   );
-// }
-
-// export default function BillingPage() {
-//   const qc = useQueryClient();
-//   const setOrg = useAuthStore((s) => s.setOrg);
-//   const { data, isLoading, error } = useQuery({ queryKey: ['billing'], queryFn: billingApi.get });
-//   const [cycle, setCycle] = useState('monthly');
-//   const [busy, setBusy] = useState(null);
-//   const [message, setMessage] = useState(null);
-
-//   if (isLoading) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-ink-400" /></div>;
-//   if (error) return <div className="card text-sm text-red-600">{error?.response?.data?.message || 'Billing load nahi hua'}</div>;
-
-//   const { org, plans, invoices } = data.data;
-//   const sub = org.subscription || {};
-
-//   const refresh = async (nextOrg) => {
-//     if (nextOrg) setOrg(nextOrg);
-//     await qc.invalidateQueries({ queryKey: ['billing'] });
-//   };
-
-//   const buy = async (plan) => {
-//     setMessage(null);
-//     setBusy(plan.code);
-//     try {
-//       const ready = await loadRazorpay();
-//       if (!ready) throw new Error('Razorpay load nahi hua — internet check karke dobara try karein');
-//       const { data: co } = await billingApi.checkout(plan.code, cycle);
-//       await new Promise((resolve, reject) => {
-//         const rzp = new window.Razorpay({
-//           key: co.keyId,
-//           subscription_id: co.subscriptionId,
-//           name: co.productName,
-//           description: `${co.quote.planName} (${cycle === 'annual' ? 'yearly' : 'monthly'})`,
-//           prefill: co.prefill,
-//           theme: { color: '#064E3B' },
-//           handler: async (resp) => {
-//             try {
-//               const res = await billingApi.verify(resp);
-//               await refresh(res.data.org);
-//               setMessage({ tone: 'ok', text: `Payment ho gaya — ${co.quote.planName} plan active hai.` });
-//               resolve();
-//             } catch (err) { reject(err); }
-//           },
-//           modal: { ondismiss: () => resolve() },
-//         });
-//         rzp.on('payment.failed', (resp) => reject(new Error(resp?.error?.description || 'Payment fail hua')));
-//         rzp.open();
-//       });
-//     } catch (err) {
-//       setMessage({ tone: 'error', text: err?.response?.data?.message || err.message });
-//     } finally {
-//       setBusy(null);
-//     }
-//   };
-
-//   const cancel = async () => {
-//     if (!window.confirm('Subscription current period ke end par band ho jayega. Data safe rahega. Cancel karein?')) return;
-//     setBusy('cancel');
-//     try {
-//       const res = await billingApi.cancel();
-//       await refresh(res.data.org);
-//       setMessage({ tone: 'ok', text: 'Subscription period ke end par band ho jayega.' });
-//     } catch (err) {
-//       setMessage({ tone: 'error', text: err?.response?.data?.message || 'Cancel nahi hua' });
-//     } finally {
-//       setBusy(null);
-//     }
-//   };
-
-//   const usage = org.usage || {};
-//   const limits = org.limits || {};
-
-//   return (
-//     <div className="mx-auto max-w-6xl space-y-6">
-//       <div>
-//         <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Plan & Billing</h1>
-//         <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Aapka plan, is mahine ka usage aur invoices.</p>
-//       </div>
-
-//       {message && (
-//         <div role="status" className={`rounded-xl px-4 py-3 text-sm ${message.tone === 'ok' ? 'bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200' : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'}`}>{message.text}</div>
-//       )}
-
-//       <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[1.1fr_1fr]">
-//         <section className="card min-w-0">
-//           <div className="flex flex-wrap items-start justify-between gap-3">
-//             <div>
-//               <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Current plan</p>
-//               <h2 className="mt-1 font-display text-2xl font-bold text-ink-900 dark:text-white">{org.planName}</h2>
-//               {org.priceOverride && <p className="text-sm text-ink-500">Special price: {inr(org.priceOverride)}/mahina</p>}
-//             </div>
-//             <StatusPill status={org.status} />
-//           </div>
-//           <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
-//             {org.status === 'trialing' ? (
-//               <div><dt className="text-ink-400">Trial khatam</dt><dd className="font-semibold text-ink-900 dark:text-white">{fmtDate(org.trialEndsAt)} ({sub.daysLeft} din)</dd></div>
-//             ) : (
-//               <div><dt className="text-ink-400">{org.cancelAtPeriodEnd ? 'Band hoga' : 'Agla bill'}</dt><dd className="font-semibold text-ink-900 dark:text-white">{fmtDate(org.currentPeriodEnd)}</dd></div>
-//             )}
-//             <div><dt className="text-ink-400">Billing</dt><dd className="font-semibold capitalize text-ink-900 dark:text-white">{org.billingCycle === 'annual' ? 'Yearly' : 'Monthly'}</dd></div>
-//           </dl>
-//           {!sub.active && sub.reason && (
-//             <div className="mt-4 flex gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200"><AlertTriangle size={17} className="mt-0.5 shrink-0" />{sub.reason}</div>
-//           )}
-//           {org.status === 'active' && !org.cancelAtPeriodEnd && (
-//             <button onClick={cancel} disabled={busy === 'cancel'} className="mt-5 text-sm font-semibold text-ink-500 underline-offset-2 hover:text-red-600 hover:underline">Cancel subscription</button>
-//           )}
-//         </section>
-
-//         <section className="card min-w-0 space-y-4">
-//           <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Is mahine ka usage</p>
-//           {['contacts', 'aiConversations', 'users', 'campaignsPerMonth'].map((key) => (
-//             <UsageBar key={key} label={LIMIT_LABEL[key]} used={key === 'campaignsPerMonth' ? usage.campaigns : usage[key]} limit={limits[key]} />
-//           ))}
-//           <p className="text-xs text-ink-400">AI conversation = ek lead jisse AI ne is mahine baat ki (kitne bhi messages).</p>
-//         </section>
-//       </div>
-
-//       <AddonsSection org={org} addons={data.data.addons} onMessage={setMessage} />
-
-//       <section>
-//         <div className="flex flex-wrap items-end justify-between gap-3">
-//           <h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">Plan badlein</h2>
-//           <div className="inline-flex rounded-lg border border-ink-200 bg-white p-1 text-sm dark:border-ink-700 dark:bg-ink-900" role="tablist" aria-label="Billing cycle">
-//             {['monthly', 'annual'].map((c) => (
-//               <button key={c} role="tab" aria-selected={cycle === c} onClick={() => setCycle(c)} className={`rounded-md px-3 py-1.5 font-semibold ${cycle === c ? 'bg-brand-600 text-white' : 'text-ink-600 dark:text-ink-300'}`}>{c === 'monthly' ? 'Monthly' : 'Yearly (2 mahine free)'}</button>
-//             ))}
-//           </div>
-//         </div>
-//         {!org.billingConfigured && (
-//           <div className="mt-4 rounded-xl border border-ink-200 bg-white p-4 text-sm text-ink-700 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200">
-//             Online payment jald shuru hoga. Abhi UPI / bank transfer se payment karke Visitsly team se activate karwayein
-//             {org.sales?.phone && <> · <a className="inline-flex items-center gap-1 font-semibold text-brand-700" href={`https://wa.me/${org.sales.phone.replace(/\D/g, '')}`}><Phone size={14} />{org.sales.phone}</a></>}
-//             {org.sales?.email && <> · <a className="inline-flex items-center gap-1 font-semibold text-brand-700" href={`mailto:${org.sales.email}`}><Mail size={14} />{org.sales.email}</a></>}
-//           </div>
-//         )}
-//         <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-//           {plans.map((p) => {
-//             const current = p.code === org.plan && org.status === 'active' && org.billingCycle === cycle;
-//             const price = cycle === 'annual' ? p.annual : p.monthly;
-//             return (
-//               <article key={p.code} className={`flex flex-col rounded-xl2 border bg-white p-5 shadow-card dark:bg-ink-900 ${p.popular ? 'border-brand-600' : 'border-ink-100 dark:border-ink-800'}`}>
-//                 <div className="flex items-center justify-between gap-2">
-//                   <h3 className="font-semibold text-ink-900 dark:text-white">{p.name}</h3>
-//                   {p.popular && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">Popular</span>}
-//                 </div>
-//                 <p className="mt-2 font-display text-2xl font-bold text-ink-900 dark:text-white">{inr(price)}<span className="text-xs font-medium text-ink-400"> /{cycle === 'annual' ? 'saal' : 'mahina'}</span></p>
-//                 <p className="text-xs text-ink-400">+ GST{p.setupFee ? ` · setup ${inr(p.setupFee)} (ek baar)` : ''}</p>
-//                 <ul className="mt-3 flex-1 space-y-1.5 text-xs text-ink-600 dark:text-ink-300">
-//                   {p.highlights.slice(0, 5).map((h) => <li key={h} className="flex gap-1.5"><Check size={14} className="mt-0.5 shrink-0 text-brand-600" />{h}</li>)}
-//                 </ul>
-//                 {p.contactSales ? (
-//                   <button type="button" className="btn-secondary mt-4 w-full" onClick={() => growthApi.request({ type: 'enterprise', message: 'Enterprise plan ke baare mein baat karni hai' }).then((r) => setMessage({ tone: 'ok', text: r.message })).catch(() => setMessage({ tone: 'error', text: 'Request nahi gayi' }))}>Sales se baat karein</button>
-//                 ) : current ? (
-//                   <span className="btn-secondary mt-4 w-full cursor-default opacity-70">Current plan</span>
-//                 ) : (
-//                   <button onClick={() => buy(p)} disabled={!!busy || !org.billingConfigured} className="btn-primary mt-4 w-full gap-2">
-//                     {busy === p.code ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}
-//                     {org.status === 'active' ? 'Switch' : 'Choose'} {p.name}
-//                   </button>
-//                 )}
-//               </article>
-//             );
-//           })}
-//         </div>
-//         <p className="mt-3 text-xs text-ink-400">Card, UPI AutoPay ya netbanking e-mandate se auto-renew. Meta ke WhatsApp charges aapke WhatsApp Business account se seedhe Meta ko jaate hain.</p>
-//       </section>
-
-//       <section className="card min-w-0">
-//         <h2 className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><Receipt size={18} /> Invoices</h2>
-//         {invoices.length === 0 ? (
-//           <p className="mt-3 text-sm text-ink-500">Abhi koi payment nahi hua.</p>
-//         ) : (
-//           <div className="mt-3 overflow-x-auto">
-//             <table className="w-full min-w-[520px] text-left text-sm">
-//               <thead className="text-xs uppercase text-ink-400"><tr><th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Details</th><th className="py-2 pr-4">Amount</th><th className="py-2">Status</th></tr></thead>
-//               <tbody className="divide-y divide-ink-100 dark:divide-ink-800">
-//                 {invoices.map((inv) => (
-//                   <tr key={inv._id}>
-//                     <td className="py-2 pr-4 text-ink-600 dark:text-ink-300">{fmtDate(inv.paidAt || inv.createdAt)}</td>
-//                     <td className="py-2 pr-4 text-ink-900 dark:text-white">{inv.description}</td>
-//                     <td className="py-2 pr-4 font-mono">{inr(inv.amount)}</td>
-//                     <td className="py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${inv.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{inv.status === 'paid' ? 'Paid' : 'Failed'}</span></td>
-//                   </tr>
-//                 ))}
-//               </tbody>
-//             </table>
-//           </div>
-//         )}
-//       </section>
-//     </div>
-//   );
-// }
-
-import { useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  Check,
-  CreditCard,
-  Loader2,
-  Receipt,
-  AlertTriangle,
-  Phone,
-  Mail,
-} from "lucide-react";
-import { billingApi, growthApi, orgApi } from "../../api/saasApi.js";
-import { useAuthStore } from "../../store/authStore.js";
-import {
-  inr,
-  money,
-  CYCLE_LABEL,
-  fmtDate,
-  StatusPill,
-  UsageBar,
-  LIMIT_LABEL,
-  loadRazorpay,
-} from "../../lib/saas.jsx";
-
-const ADDON_KEYS = [
-  ["extraUser", "extraUsers", "Extra login"],
-  ["extraAiConversations", "aiPacks", "Extra 1,000 AI chats"],
-  ["voiceMinute", null, "AI calling"],
-  ["metaAdsManagement", null, "Meta Ads management"],
-  ["projectLaunch", null, "Project Launch Package"],
-  ["extraNumber", "extraNumbers", "Extra WhatsApp number"],
+const ADDONS = [
+  { key: 'extraUser', label: 'Extra team member', icon: Users, unit: '/ user / mahina', step: 1, min: 1, field: 'extraUsers' },
+  { key: 'extraNumber', label: 'Extra WhatsApp number', icon: Smartphone, unit: '/ number / mahina', step: 1, min: 1, field: 'extraNumbers' },
+  { key: 'extraAiConversations', label: '1,000 extra AI conversations', icon: Bot, unit: '/ pack / mahina', step: 1, min: 1, field: 'aiPacks' },
+  { key: 'voiceMinute', label: 'AI calling minutes', icon: PhoneCall, unit: '/ minute', step: 100, min: 100 },
+  { key: 'leadRevival', label: 'Purani leads revive campaign', icon: RotateCcw, unit: 'ek baar', step: 1, min: 1, max: 1 },
 ];
 
-function AddonsSection({ org, addons, onMessage }) {
-  const request = async (key, label) => {
-    const qty =
-      ["voiceMinute", "metaAdsManagement", "projectLaunch"].includes(key)
-        ? 1
-        : Number(window.prompt(`${label} — kitne chahiye?`, "1"));
-    if (!qty) return;
-    try {
-      const res = await growthApi.request({
-        type: key === "voiceMinute" ? "voice" : "addon",
-        addon: key,
-        quantity: qty,
-      });
-      onMessage({ tone: "ok", text: res.message });
-    } catch (err) {
-      onMessage({
-        tone: "error",
-        text: err?.response?.data?.message || "Request nahi gayi",
-      });
-    }
-  };
+/** Razorpay Checkout wrapped in a promise: resolves {status: 'success'|'dismissed'}, rejects on failure. */
+function openCheckout(options) {
+  return new Promise((resolve, reject) => {
+    const rzp = new window.Razorpay({
+      ...options,
+      theme: { color: '#059669' },
+      handler: (resp) => resolve({ status: 'success', resp }),
+      modal: { ondismiss: () => resolve({ status: 'dismissed' }), confirm_close: true },
+    });
+    rzp.on('payment.failed', (resp) => reject(Object.assign(new Error(resp?.error?.description || 'Payment fail hua'), { reason: resp?.error?.reason, paymentFailed: true })));
+    rzp.open();
+  });
+}
+
+function paymentFailedDialog(err) {
+  showDialog({
+    tone: 'error',
+    title: 'Payment fail ho gaya ❌',
+    message: `${err.message || 'Bank ne payment reject kar diya.'}\n\nAgar paisa kat gaya hai to 5-7 din mein apne aap wapas aa jayega. Doosra card / UPI try karein.`,
+  });
+}
+
+function AddonCard({ addon, price, currency, have, onBuy, busy, disabled }) {
+  const [qty, setQty] = useState(addon.min);
+  const Icon = addon.icon;
+  const total = (Number(price) || 0) * qty;
   return (
-    <section className="card min-w-0">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="font-semibold text-ink-900 dark:text-white">Add-ons</h2>
-        {org.usage?.voiceMinutes > 0 && (
-          <span className="text-xs text-ink-500">
-            AI calling is mahine: {org.usage.voiceMinutes} min
-          </span>
-        )}
+    <li className="flex flex-col gap-3 rounded-xl border border-ink-100 p-4 dark:border-ink-800">
+      <div className="flex items-start gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-700 dark:bg-brand-900/30 dark:text-brand-200"><Icon size={18} /></span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-ink-900 dark:text-white">{addon.label}</p>
+          <p className="text-xs text-ink-500">{price != null ? `${money(price, currency)} ${addon.unit}` : ''}{have ? ` · aapke paas ${have}` : ''}</p>
+        </div>
       </div>
-      <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {ADDON_KEYS.map(([key, field, label]) => {
-          const a = Array.isArray(addons) ? addons.find((x) => x.code === key) : addons?.[key];
-          const cur = org.currency || "INR";
-          const have = field ? org.addons?.[field] || 0 : 0;
-          return (
-            <li
-              key={key}
-              className="flex items-center justify-between gap-3 rounded-xl border border-ink-100 p-3 dark:border-ink-800"
-            >
-              <span className="min-w-0 text-sm">
-                <span className="block font-medium text-ink-800 dark:text-ink-100">
-                  {label}
-                </span>
-                <span className="text-xs text-ink-500">
-                  {a
-                    ? a.display ||
-                      (a.price == null
-                        ? "On request"
-                        : `${money(a.price, cur)} / ${a.unit === "month" ? "month" : a.unit === "minute" ? "minute" : a.unit === "once" ? "one-time" : "pack"}`)
-                    : ""}
-                  {a?.note ? ` · ${a.note}` : ""}
-                  {have ? ` · aapke paas ${have}` : ""}
-                </span>
-              </span>
-              <button
-                className="btn-secondary shrink-0 !px-3 !py-1.5 text-xs"
-                onClick={() => request(key, label)}
-              >
-                Request
-              </button>
-            </li>
-          );
-        })}
-      </ul>
-      <p className="mt-2 text-xs text-ink-400">
-        Request ke baad Visitsly team payment link bhejegi; payment hote hi
-        add-on turant chalu.
-      </p>
-    </section>
+      <div className="flex items-center justify-between gap-2">
+        {addon.max === 1 ? <span className="text-xs text-ink-500">1</span> : (
+          <div className="flex items-center rounded-lg border border-ink-200 dark:border-ink-700">
+            <button type="button" className="p-1.5" aria-label="Kam" onClick={() => setQty((q) => Math.max(addon.min, q - addon.step))}><Minus size={14} /></button>
+            <span className="min-w-[48px] text-center text-sm font-semibold">{qty}</span>
+            <button type="button" className="p-1.5" aria-label="Zyada" onClick={() => setQty((q) => q + addon.step)}><Plus size={14} /></button>
+          </div>
+        )}
+        <button type="button" className="btn-primary gap-1.5 !px-3 !py-1.5 text-xs" disabled={busy || disabled} onClick={() => onBuy(addon, qty)}>
+          {busy ? <Loader2 size={13} className="animate-spin" /> : <CreditCard size={13} />} {money(total, currency)} pay karein
+        </button>
+      </div>
+    </li>
   );
 }
 
 export default function BillingPage() {
   const qc = useQueryClient();
   const setOrg = useAuthStore((s) => s.setOrg);
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["billing"],
-    queryFn: billingApi.get,
-  });
-  const [cycle, setCycle] = useState("monthly");
+  const { data, isLoading, error } = useQuery({ queryKey: ['billing'], queryFn: billingApi.get });
+  const [cycle, setCycle] = useState('monthly');
   const [busy, setBusy] = useState(null);
-  const [message, setMessage] = useState(null);
 
-  if (isLoading)
-    return (
-      <div className="flex justify-center py-20">
-        <Loader2 className="animate-spin text-ink-400" />
-      </div>
-    );
-  if (error)
-    return (
-      <div className="card text-sm text-red-600">
-        {error?.response?.data?.message || "Billing load nahi hua"}
-      </div>
-    );
+  if (isLoading) return <div className="mx-auto max-w-6xl space-y-4"><Skeleton className="h-10 w-48" /><Skeleton className="h-64 !rounded-2xl" /><Skeleton className="h-40 !rounded-2xl" /></div>;
+  if (error) return <div className="card text-sm text-red-600">{errText(error, 'Billing load nahi hua')}</div>;
 
-  const { org, plans, invoices } = data.data;
-  const cur = data.data.currency || org.currency || "INR";
-  const taxNote = data.data.taxRate
-    ? `+ ${Math.round(data.data.taxRate * 100)}% ${data.data.taxLabel || "GST"}`
-    : `excl. ${data.data.taxLabel || "VAT"}`;
+  const { org, plans, invoices, addons, currency = 'INR', taxRate = 0, activeAddons = [] } = data.data;
   const sub = org.subscription || {};
+  const usage = org.usage || {};
+  const limits = org.limits || {};
+  const taxText = currency === 'INR' ? '+ 18% GST' : taxRate ? `+ ${Math.round(taxRate * 100)}% tax` : 'Tax included';
 
   const refresh = async (nextOrg) => {
     if (nextOrg) setOrg(nextOrg);
-    await qc.invalidateQueries({ queryKey: ["billing"] });
+    await qc.invalidateQueries({ queryKey: ['billing'] });
   };
 
   const buy = async (plan) => {
-    setMessage(null);
     setBusy(plan.code);
     try {
-      const ready = await loadRazorpay();
-      if (!ready)
-        throw new Error(
-          "Razorpay load nahi hua — internet check karke dobara try karein",
-        );
+      if (!(await loadRazorpay())) throw new Error('Payment window load nahi hui — internet check karke dobara try karein');
       const { data: co } = await billingApi.checkout(plan.code, cycle);
-      await new Promise((resolve, reject) => {
-        const rzp = new window.Razorpay({
-          key: co.keyId,
-          subscription_id: co.subscriptionId,
-          name: co.productName,
-          description: `${co.quote.planName} (${CYCLE_LABEL[cycle] || cycle})`,
-          prefill: co.prefill,
-          theme: { color: "#064E3B" },
-          handler: async (resp) => {
-            try {
-              const res = await billingApi.verify(resp);
-              await refresh(res.data.org);
-              setMessage({
-                tone: "ok",
-                text: `Payment ho gaya — ${co.quote.planName} plan active hai.`,
-              });
-              resolve();
-            } catch (err) {
-              reject(err);
-            }
-          },
-          modal: { ondismiss: () => resolve() },
-        });
-        rzp.on("payment.failed", (resp) =>
-          reject(new Error(resp?.error?.description || "Payment fail hua")),
-        );
-        rzp.open();
+      if (co.currencyNote) toast.info(co.currencyNote);
+      const result = await openCheckout({
+        key: co.keyId,
+        subscription_id: co.subscriptionId,
+        name: co.productName,
+        description: `${co.quote.planName} (${cycle === 'annual' ? 'yearly' : 'monthly'})`,
+        prefill: co.prefill,
       });
+      if (result.status === 'dismissed') { toast.info('Payment cancel kiya gaya. Jab chahein dobara try karein.'); return; }
+      const res = await billingApi.verify(result.resp);
+      await refresh(res.data.org);
+      showDialog({ tone: 'success', title: 'Payment successful 🎉', message: `${co.quote.planName} plan ab active hai.\nAmount: ${money(co.quote.firstPayment, co.quote.currency)}\nInvoice neeche "Invoices" mein dikhega.` });
     } catch (err) {
-      setMessage({
-        tone: "error",
-        text: err?.response?.data?.message || err.message,
+      if (err.paymentFailed) paymentFailedDialog(err);
+      else showDialog({ title: 'Payment complete nahi hua', message: errText(err) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const buyAddon = async (addon, qty) => {
+    setBusy(`addon:${addon.key}`);
+    try {
+      if (!(await loadRazorpay())) throw new Error('Payment window load nahi hui — internet check karke dobara try karein');
+      const { data: co } = await billingApi.addonCheckout(addon.key, qty);
+      const result = await openCheckout({
+        key: co.keyId,
+        order_id: co.orderId,
+        amount: co.amount,
+        currency: co.currency,
+        name: co.productName,
+        description: `${co.quote.name} × ${co.quote.quantity}`,
+        prefill: co.prefill,
       });
+      if (result.status === 'dismissed') { toast.info('Payment cancel kiya gaya.'); return; }
+      const res = await billingApi.addonVerify(result.resp);
+      await refresh(res.data.org);
+      showDialog({ tone: 'success', title: 'Payment successful 🎉', message: `${co.quote.name} × ${co.quote.quantity} chalu ho gaya.\nAmount: ${money(co.quote.total, co.quote.currency)}` });
+    } catch (err) {
+      if (err.paymentFailed) paymentFailedDialog(err);
+      else showDialog({ title: 'Payment complete nahi hua', message: errText(err) });
     } finally {
       setBusy(null);
     }
   };
 
   const cancel = async () => {
-    if (
-      !window.confirm(
-        "Subscription current period ke end par band ho jayega. Data safe rahega. Cancel karein?",
-      )
-    )
-      return;
-    setBusy("cancel");
+    if (!window.confirm('Subscription current period ke end par band ho jayega. Data safe rahega. Cancel karein?')) return;
+    setBusy('cancel');
     try {
       const res = await billingApi.cancel();
       await refresh(res.data.org);
-      setMessage({
-        tone: "ok",
-        text: "Subscription period ke end par band ho jayega.",
-      });
+      toast.success('Subscription period ke end par band ho jayega.');
     } catch (err) {
-      setMessage({
-        tone: "error",
-        text: err?.response?.data?.message || "Cancel nahi hua",
-      });
-    } finally {
-      setBusy(null);
-    }
+      toast.error(errText(err, 'Cancel nahi hua'));
+    } finally { setBusy(null); }
   };
 
-  const usage = org.usage || {};
-  const limits = org.limits || {};
+  const trialing = org.status === 'trialing';
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
       <div>
-        <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">
-          Plan & Billing
-        </h1>
-        <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">
-          Aapka plan, is mahine ka usage aur invoices.
-        </p>
+        <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Plans & billing</h1>
+        <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Plan chunein, add-ons lein, aur invoices dekhein. Prices {currency} mein.</p>
       </div>
 
-      {message && (
-        <div
-          role="status"
-          className={`rounded-xl px-4 py-3 text-sm ${message.tone === "ok" ? "bg-green-50 text-green-800 dark:bg-green-900/20 dark:text-green-200" : "bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300"}`}
-        >
-          {message.text}
-        </div>
-      )}
-
-      <div className="grid min-w-0 grid-cols-1 gap-6 lg:grid-cols-[1.1fr_1fr]">
-        <section className="card min-w-0">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">
-                Current plan
-              </p>
-              <h2 className="mt-1 font-display text-2xl font-bold text-ink-900 dark:text-white">
-                {org.planName}
-              </h2>
-              {org.priceOverride && (
-                <p className="text-sm text-ink-500">
-                  Special price: {money(org.priceOverride, cur)}/month
-                </p>
-              )}
-            </div>
-            <StatusPill status={org.status} />
-          </div>
-          <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
-            {org.status === "trialing" ? (
-              <div>
-                <dt className="text-ink-400">Trial khatam</dt>
-                <dd className="font-semibold text-ink-900 dark:text-white">
-                  {fmtDate(org.trialEndsAt)} ({sub.daysLeft} din)
-                </dd>
-              </div>
-            ) : (
-              <div>
-                <dt className="text-ink-400">
-                  {org.cancelAtPeriodEnd ? "Band hoga" : "Agla bill"}
-                </dt>
-                <dd className="font-semibold text-ink-900 dark:text-white">
-                  {fmtDate(org.currentPeriodEnd)}
-                </dd>
-              </div>
-            )}
-            <div>
-              <dt className="text-ink-400">Billing</dt>
-              <dd className="font-semibold capitalize text-ink-900 dark:text-white">
-                {CYCLE_LABEL[org.billingCycle] || "Monthly"} · {org.region === "ae" ? "🇦🇪 UAE (AED)" : "🇮🇳 India (INR)"}
-              </dd>
-            </div>
-          </dl>
-          {!sub.active && sub.reason && (
-            <div className="mt-4 flex gap-2 rounded-lg bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">
-              <AlertTriangle size={17} className="mt-0.5 shrink-0" />
-              {sub.reason}
-            </div>
-          )}
-          {org.status === "active" && !org.cancelAtPeriodEnd && (
-            <button
-              onClick={cancel}
-              disabled={busy === "cancel"}
-              className="mt-5 text-sm font-semibold text-ink-500 underline-offset-2 hover:text-red-600 hover:underline"
-            >
-              Cancel subscription
-            </button>
-          )}
-        </section>
-
-        <section className="card min-w-0 space-y-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">
-            Is mahine ka usage
-          </p>
-          {[
-            "contacts",
-            "bulkMessages",
-            "aiConversations",
-            "users",
-            "campaignsPerMonth",
-          ].map((key) => (
-            <UsageBar
-              key={key}
-              label={
-                key === "bulkMessages" && org.status === "trialing"
-                  ? "Bulk messages (trial total)"
-                  : LIMIT_LABEL[key]
-              }
-              used={key === "campaignsPerMonth" ? usage.campaigns : usage[key]}
-              limit={limits[key]}
-            />
-          ))}
-          {limits.aiRepliesPerContact != null && (
-            <p className="text-xs text-ink-500 dark:text-ink-400">
-              AI har contact ko maximum{" "}
-              {Number(limits.aiRepliesPerContact).toLocaleString("en-IN")}{" "}
-              replies karta hai. Uske baad aap khud reply kar sakte hain ya plan
-              upgrade kar sakte hain.
+      {/* Current status / trial */}
+      <section className={`flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-center sm:justify-between ${trialing ? 'border-sky-200 bg-gradient-to-r from-sky-50 to-emerald-50 dark:border-sky-900 dark:from-sky-950/30 dark:to-emerald-950/20' : 'border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900'}`}>
+        <div className="flex items-start gap-3">
+          <span className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl ${trialing ? 'bg-sky-500 text-white' : 'bg-emerald-500 text-white'}`}>{trialing ? <Gift size={22} /> : <Sparkles size={22} />}</span>
+          <div>
+            <div className="flex flex-wrap items-center gap-2"><h2 className="font-display text-xl font-bold text-ink-900 dark:text-white">{trialing ? 'Free trial chal raha hai' : `${org.planName} plan`}</h2><StatusPill status={org.status} /></div>
+            <p className="mt-1 text-sm text-ink-600 dark:text-ink-300">
+              {trialing ? <>Trial <b>{fmtDate(org.trialEndsAt)}</b> ko khatam hoga ({sub.daysLeft ?? 0} din bache). Neeche se plan chunein taaki kaam na ruke.</> : org.cancelAtPeriodEnd ? <>Plan <b>{fmtDate(org.currentPeriodEnd)}</b> ko band hoga.</> : <>Agla bill: <b>{fmtDate(org.currentPeriodEnd)}</b> · {org.billingCycle === 'annual' ? 'Yearly' : 'Monthly'}</>}
             </p>
-          )}
-          <p className="text-xs text-ink-400">
-            AI conversation = ek lead jisse AI ne is mahine baat ki (kitne bhi
-            messages).
-          </p>
-        </section>
-      </div>
+            {!sub.active && sub.reason && <p className="mt-2 flex items-start gap-1.5 text-sm text-amber-800 dark:text-amber-200"><AlertTriangle size={15} className="mt-0.5 shrink-0" />{sub.reason}</p>}
+          </div>
+        </div>
+        {org.status === 'active' && !org.cancelAtPeriodEnd && <button type="button" onClick={cancel} disabled={busy === 'cancel'} className="self-start text-sm font-semibold text-ink-500 hover:text-red-600 hover:underline sm:self-center">Cancel subscription</button>}
+      </section>
 
-      <AddonsSection
-        org={org}
-        addons={data.data.addons}
-        onMessage={setMessage}
-      />
-
+      {/* Plans */}
       <section>
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">
-            Plan badlein
-          </h2>
-          <div
-            className="inline-flex rounded-lg border border-ink-200 bg-white p-1 text-sm dark:border-ink-700 dark:bg-ink-900"
-            role="tablist"
-            aria-label="Billing cycle"
-          >
-            {["monthly", "halfyearly", "annual"].map((c) => (
-              <button
-                key={c}
-                role="tab"
-                aria-selected={cycle === c}
-                onClick={() => setCycle(c)}
-                className={`rounded-md px-3 py-1.5 font-semibold ${cycle === c ? "bg-brand-600 text-white" : "text-ink-600 dark:text-ink-300"}`}
-              >
-                {c === "monthly" ? "Monthly" : c === "halfyearly" ? "6 months (no setup)" : "Yearly (2 months free)"}
-              </button>
-            ))}
+          <h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">Plans</h2>
+          <div className="inline-flex rounded-lg border border-ink-200 bg-white p-1 text-sm dark:border-ink-700 dark:bg-ink-900" role="tablist" aria-label="Billing cycle">
+            {['monthly', 'annual'].map((c) => <button key={c} type="button" role="tab" aria-selected={cycle === c} onClick={() => setCycle(c)} className={`rounded-md px-3 py-1.5 font-semibold ${cycle === c ? 'bg-brand-600 text-white' : 'text-ink-600 dark:text-ink-300'}`}>{c === 'monthly' ? 'Monthly' : 'Yearly (2 mahine free)'}</button>)}
           </div>
         </div>
-        {org.status !== "active" && (
-          <div className="mt-3 flex flex-wrap items-center gap-2 text-sm text-ink-600 dark:text-ink-300">
-            <span>Billing country:</span>
-            {[["in", "🇮🇳 India"], ["ae", "🇦🇪 UAE"]].map(([r, label]) => (
-              <button
-                key={r}
-                type="button"
-                onClick={async () => {
-                  if (r === org.region) return;
-                  try {
-                    const res = await orgApi.update({ region: r });
-                    await refresh(res.data.org);
-                  } catch (err) {
-                    setMessage({ tone: "error", text: err?.response?.data?.message || "Country change nahi hua" });
-                  }
-                }}
-                className={`rounded-md border px-3 py-1 font-semibold ${org.region === r ? "border-brand-600 bg-brand-50 text-brand-700" : "border-ink-200 dark:border-ink-700"}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
-        {org.region === "ae" && data.data.intlCheckout === false && org.billingConfigured && (
-          <div className="mt-4 rounded-xl border border-ink-200 bg-white p-4 text-sm text-ink-700 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200">
-            UAE (AED) payments abhi bank transfer se hote hain — "Sales se baat karein" ya support par message karein, hamari team plan activate kar degi.
-          </div>
-        )}
         {!org.billingConfigured && (
           <div className="mt-4 rounded-xl border border-ink-200 bg-white p-4 text-sm text-ink-700 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-200">
-            Online payment jald shuru hoga. Abhi UPI / bank transfer se payment
-            karke Visitsly team se activate karwayein
-            {org.sales?.phone && (
-              <>
-                {" "}
-                ·{" "}
-                <a
-                  className="inline-flex items-center gap-1 font-semibold text-brand-700"
-                  href={`https://wa.me/${org.sales.phone.replace(/\D/g, "")}`}
-                >
-                  <Phone size={14} />
-                  {org.sales.phone}
-                </a>
-              </>
-            )}
-            {org.sales?.email && (
-              <>
-                {" "}
-                ·{" "}
-                <a
-                  className="inline-flex items-center gap-1 font-semibold text-brand-700"
-                  href={`mailto:${org.sales.email}`}
-                >
-                  <Mail size={14} />
-                  {org.sales.email}
-                </a>
-              </>
-            )}
+            Online payment jald shuru hoga. Abhi UPI / bank transfer se payment karke team se activate karwayein
+            {org.sales?.phone && <> · <a className="inline-flex items-center gap-1 font-semibold text-brand-700" href={`https://wa.me/${org.sales.phone.replace(/\D/g, '')}`}><Phone size={14} />{org.sales.phone}</a></>}
+            {org.sales?.email && <> · <a className="inline-flex items-center gap-1 font-semibold text-brand-700" href={`mailto:${org.sales.email}`}><Mail size={14} />{org.sales.email}</a></>}
           </div>
         )}
-        <div className={`mt-4 grid gap-4 sm:grid-cols-2 ${plans.length > 4 ? "xl:grid-cols-5" : "xl:grid-cols-4"}`}>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {plans.map((p) => {
-            const current =
-              p.code === org.plan &&
-              org.status === "active" &&
-              org.billingCycle === cycle;
-            const price = cycle === "annual" ? p.annual : cycle === "halfyearly" ? p.halfyearly : p.monthly;
+            const current = p.code === org.plan && org.status === 'active' && org.billingCycle === cycle;
+            const price = cycle === 'annual' ? p.annual : p.monthly;
             return (
-              <article
-                key={p.code}
-                className={`flex flex-col rounded-xl2 border bg-white p-5 shadow-card dark:bg-ink-900 ${p.popular ? "border-brand-600" : "border-ink-100 dark:border-ink-800"}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <h3 className="font-semibold text-ink-900 dark:text-white">
-                    {p.name}
-                  </h3>
-                  {p.popular && (
-                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase text-amber-800">
-                      Popular
-                    </span>
-                  )}
-                </div>
-                <p className="mt-2 font-display text-2xl font-bold text-ink-900 dark:text-white">
-                  {money(price, cur)}
-                  {p.contactSales ? "+" : ""}
-                  <span className="text-xs font-medium text-ink-400">
-                    {" "}
-                    /{cycle === "annual" ? "year" : cycle === "halfyearly" ? "6 months" : "month"}
-                  </span>
-                </p>
-                <p className="text-xs text-ink-400">
-                  {taxNote}
-                  {p.setupFee
-                    ? cycle === "monthly"
-                      ? ` · setup ${money(p.setupFee, cur)} (one-time)`
-                      : ` · setup ${money(p.setupFee, cur)} waived`
-                    : " · no setup fee"}
-                </p>
+              <article key={p.code} className={`relative flex flex-col rounded-2xl border bg-white p-5 shadow-card dark:bg-ink-900 ${p.popular ? 'border-brand-600 ring-2 ring-brand-600/15' : 'border-ink-100 dark:border-ink-800'}`}>
+                {p.popular && <span className="absolute -top-2.5 left-4 rounded-full bg-amber-400 px-2.5 py-0.5 text-[10px] font-bold uppercase text-amber-950">Sabse popular</span>}
+                <h3 className="font-semibold text-ink-900 dark:text-white">{p.name}</h3>
+                {p.tagline && <p className="text-xs text-ink-500">{p.tagline}</p>}
+                <p className="mt-3 font-display text-2xl font-bold text-ink-900 dark:text-white">{money(price, p.currency || currency)}<span className="text-xs font-medium text-ink-400"> /{cycle === 'annual' ? 'saal' : 'mahina'}</span></p>
+                <p className="text-xs text-ink-400">{taxText}{p.setupFee && !org.razorpay?.setupFeePaid ? ` · setup ${money(p.setupFee, p.currency || currency)} (ek baar)` : ''}</p>
                 <ul className="mt-3 flex-1 space-y-1.5 text-xs text-ink-600 dark:text-ink-300">
-                  {p.highlights.slice(0, 5).map((h) => (
-                    <li key={h} className="flex gap-1.5">
-                      <Check
-                        size={14}
-                        className="mt-0.5 shrink-0 text-brand-600"
-                      />
-                      {h}
-                    </li>
-                  ))}
+                  {p.highlights.slice(0, 6).map((h) => <li key={h} className="flex gap-1.5"><Check size={14} className="mt-0.5 shrink-0 text-brand-600" />{h}</li>)}
                 </ul>
                 {p.contactSales ? (
-                  <button
-                    type="button"
-                    className="btn-secondary mt-4 w-full"
-                    onClick={() =>
-                      growthApi
-                        .request({
-                          type: "enterprise",
-                          message:
-                            "Enterprise plan ke baare mein baat karni hai",
-                        })
-                        .then((r) =>
-                          setMessage({ tone: "ok", text: r.message }),
-                        )
-                        .catch(() =>
-                          setMessage({
-                            tone: "error",
-                            text: "Request nahi gayi",
-                          }),
-                        )
-                    }
-                  >
-                    Sales se baat karein
-                  </button>
+                  <button type="button" className="btn-secondary mt-4 w-full" onClick={() => growthApi.request({ type: 'enterprise', message: 'Enterprise plan ke baare mein baat karni hai' }).then((r) => toast.success(r.message)).catch(() => toast.error('Request nahi gayi'))}>Sales se baat karein</button>
                 ) : current ? (
-                  <span className="btn-secondary mt-4 w-full cursor-default opacity-70">
-                    Current plan
-                  </span>
+                  <span className="btn-secondary mt-4 w-full cursor-default opacity-70">Current plan ✓</span>
                 ) : (
-                  <button
-                    onClick={() => buy(p)}
-                    disabled={!!busy || !org.billingConfigured || (org.region === "ae" && data.data.intlCheckout === false)}
-                    className="btn-primary mt-4 w-full gap-2"
-                  >
-                    {busy === p.code ? (
-                      <Loader2 size={16} className="animate-spin" />
-                    ) : (
-                      <CreditCard size={16} />
-                    )}
-                    {org.status === "active" ? "Switch" : "Choose"} {p.name}
-                  </button>
+                  <button type="button" onClick={() => buy(p)} disabled={!!busy || !org.billingConfigured} className="btn-primary mt-4 w-full gap-2">{busy === p.code ? <Loader2 size={16} className="animate-spin" /> : <CreditCard size={16} />}{org.status === 'active' ? 'Is plan par jayein' : `${p.name} lein`}</button>
                 )}
               </article>
             );
           })}
         </div>
-        <p className="mt-3 text-xs text-ink-400">
-          Card, UPI AutoPay ya netbanking e-mandate se auto-renew. Meta ke
-          WhatsApp charges plan se alag hain aur aapke wallet se jaate hain.
-        </p>
+        <p className="mt-3 text-xs text-ink-400">Card{currency === 'INR' ? ', UPI AutoPay ya netbanking' : ''} se auto-renew. Meta ke WhatsApp charges aapke WhatsApp Business account se seedhe Meta ko jaate hain.</p>
       </section>
 
+      {/* Add-ons */}
       <section className="card min-w-0">
-        <h2 className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white">
-          <Receipt size={18} /> Invoices
-        </h2>
-        {invoices.length === 0 ? (
-          <p className="mt-3 text-sm text-ink-500">
-            Abhi koi payment nahi hua.
-          </p>
-        ) : (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="font-semibold text-ink-900 dark:text-white">Add-ons</h2>
+          {usage.voiceMinutes > 0 && <span className="text-xs text-ink-500">AI calling is mahine: {usage.voiceMinutes} min</span>}
+        </div>
+        <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {ADDONS.map((a) => {
+            const fromGrants = activeAddons.filter((g) => g.key === a.key).reduce((n, g) => n + (g.quantity || 0), 0);
+            return <AddonCard key={a.key} addon={a} price={addons?.[a.key]?.price} currency={currency} have={(a.field ? org.addons?.[a.field] || 0 : 0) + fromGrants} busy={busy === `addon:${a.key}`} disabled={!!busy || !org.billingConfigured} onBuy={buyAddon} />;
+          })}
+        </ul>
+        <p className="mt-2 text-xs text-ink-400">Payment hote hi add-on turant chalu. Monthly add-ons 1 mahine ke liye hain.</p>
+      </section>
+
+      {/* Usage */}
+      <section className="card min-w-0 space-y-4">
+        <p className="text-xs font-semibold uppercase tracking-wider text-ink-400">Is mahine ka usage</p>
+        {['contacts', 'bulkMessages', 'aiConversations', 'users', 'campaignsPerMonth'].map((key) => (
+          <UsageBar key={key} label={key === 'bulkMessages' && trialing ? 'Bulk messages (trial total)' : LIMIT_LABEL[key]} used={key === 'campaignsPerMonth' ? usage.campaigns : usage[key]} limit={limits[key]} />
+        ))}
+        {limits.aiRepliesPerContact != null && <p className="text-xs text-ink-500 dark:text-ink-400">AI har contact ko maximum {Number(limits.aiRepliesPerContact).toLocaleString('en-IN')} replies karta hai.</p>}
+      </section>
+
+      {/* Invoices */}
+      <section className="card min-w-0">
+        <h2 className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><Receipt size={18} /> Invoices</h2>
+        {invoices.length === 0 ? <p className="mt-3 text-sm text-ink-500">Abhi koi payment nahi hua.</p> : (
           <div className="mt-3 overflow-x-auto">
             <table className="w-full min-w-[520px] text-left text-sm">
-              <thead className="text-xs uppercase text-ink-400">
-                <tr>
-                  <th className="py-2 pr-4">Date</th>
-                  <th className="py-2 pr-4">Details</th>
-                  <th className="py-2 pr-4">Amount</th>
-                  <th className="py-2">Status</th>
-                </tr>
-              </thead>
+              <thead className="text-xs uppercase text-ink-400"><tr><th className="py-2 pr-4">Date</th><th className="py-2 pr-4">Details</th><th className="py-2 pr-4">Amount</th><th className="py-2">Status</th></tr></thead>
               <tbody className="divide-y divide-ink-100 dark:divide-ink-800">
                 {invoices.map((inv) => (
                   <tr key={inv._id}>
-                    <td className="py-2 pr-4 text-ink-600 dark:text-ink-300">
-                      {fmtDate(inv.paidAt || inv.createdAt)}
-                    </td>
-                    <td className="py-2 pr-4 text-ink-900 dark:text-white">
-                      {inv.description}
-                    </td>
-                    <td className="py-2 pr-4 font-mono">{money(inv.amount, inv.currency || "INR")}</td>
-                    <td className="py-2">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${inv.status === "paid" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}
-                      >
-                        {inv.status === "paid" ? "Paid" : "Failed"}
-                      </span>
-                    </td>
+                    <td className="py-2 pr-4 text-ink-600 dark:text-ink-300">{fmtDate(inv.paidAt || inv.createdAt)}</td>
+                    <td className="py-2 pr-4 text-ink-900 dark:text-white">{inv.description}</td>
+                    <td className="py-2 pr-4 font-mono">{money(inv.amount, inv.currency || 'INR')}</td>
+                    <td className="py-2"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${inv.status === 'paid' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{inv.status === 'paid' ? 'Paid' : inv.status === 'refunded' ? 'Refunded' : 'Failed'}</span></td>
                   </tr>
                 ))}
               </tbody>

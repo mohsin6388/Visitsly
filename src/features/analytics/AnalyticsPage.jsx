@@ -10,8 +10,8 @@ import {
 } from 'recharts';
 import { analyticsApi } from '../../api/analyticsApi.js';
 import { useAuthStore } from '../../store/authStore.js';
-import SetupChecklist from '../saas/SetupChecklist.jsx';
 import MetaBillingSection from './MetaBillingSection.jsx';
+import SourcePerformance from './SourcePerformance.jsx';
 
 const RANGES = [
   { value: '7d', label: '7 days' },
@@ -130,7 +130,6 @@ export default function AnalyticsPage() {
   const firstName = user?.name?.trim()?.split(/\s+/)[0] || 'there';
 
   return <div className="mx-auto max-w-[1600px] space-y-6 pb-8">
-    <SetupChecklist compact />
 
     <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
@@ -141,72 +140,24 @@ export default function AnalyticsPage() {
       <div className="flex flex-wrap items-center gap-2">
         <span className="mr-1 hidden text-xs text-slate-400 dark:text-ink-500 md:inline">{today}</span>
         <button type="button" onClick={() => fetchAll(true)} disabled={loading || refreshing} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white dark:border-ink-800 dark:bg-ink-900 px-3.5 py-2.5 text-sm font-semibold text-slate-600 dark:text-ink-300 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 dark:bg-ink-950 disabled:opacity-60"><RefreshCw size={15} className={refreshing ? 'animate-spin' : ''} /> Refresh</button>
-        <Link to="/leads" className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(5,150,105,0.2)] transition hover:bg-emerald-700"><Users size={16} /> Add a lead</Link>
+        <Link to="/leads" className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-[0_6px_16px_rgba(5,150,105,0.2)] transition hover:bg-emerald-700"><Users size={16} /> Upload data</Link>
       </div>
     </div>
 
     {error && <div role="alert" className="flex flex-col gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800 sm:flex-row sm:items-center sm:justify-between"><span className="flex items-start gap-2"><AlertCircle size={17} className="mt-0.5 shrink-0" />{error}</span><button type="button" onClick={() => fetchAll()} className="self-start font-semibold underline underline-offset-2 sm:self-auto">Try again</button></div>}
 
-    <section className="relative isolate overflow-hidden rounded-[26px] bg-[#0B1728] text-white shadow-[0_20px_60px_rgba(15,23,42,0.13)]">
-      <div className="pointer-events-none absolute -right-16 -top-28 -z-10 h-80 w-80 rounded-full bg-emerald-400/20 blur-3xl" />
-      <div className="pointer-events-none absolute bottom-[-100px] left-[35%] -z-10 h-64 w-64 rounded-full bg-blue-500/15 blur-3xl" />
-      <div className="grid gap-7 p-5 sm:p-7 lg:grid-cols-[1.05fr_0.95fr] lg:items-center lg:p-8">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1.5 text-[11px] font-bold uppercase tracking-[0.12em] text-emerald-200"><Sparkles size={13} /> Visitsly property assistant</div>
-          <h2 className="mt-5 max-w-xl font-display text-3xl font-bold leading-[1.12] tracking-tight sm:text-4xl">From the first WhatsApp chat to a <span className="text-emerald-300">site visit.</span></h2>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-slate-300 sm:text-[15px]">Let your property assistant understand buyer requirements, suggest matching properties, qualify the lead and help move the conversation toward a visit.</p>
-          <div className="mt-5 flex flex-wrap gap-2">
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-slate-200"><MessageCircle size={13} className="text-emerald-300" /> WhatsApp conversations</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-slate-200"><Building2 size={13} className="text-sky-300" /> Property matching</span>
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs text-slate-200"><Target size={13} className="text-amber-300" /> Lead scoring</span>
-          </div>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <Link to="/whatsapp/conversations" className="inline-flex items-center gap-2 rounded-xl bg-emerald-400 px-4 py-2.5 text-sm font-bold text-[#052e27] transition hover:bg-emerald-300">Open AI inbox <ArrowRight size={16} /></Link>
-            <Link to="/whatsapp" className="inline-flex items-center gap-2 rounded-xl border border-white/15 bg-white/[0.06] px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-white/10">WhatsApp settings <ChevronRight size={15} /></Link>
-          </div>
-          <div className="mt-5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400 dark:text-ink-500">
-            <span className={`inline-flex h-2 w-2 rounded-full ${isWhatsAppConnected ? 'bg-emerald-400 shadow-[0_0_0_4px_rgba(52,211,153,0.12)]' : 'bg-amber-400'}`} />
-            {isWhatsAppConnected ? `Connected ${org?.whatsapp?.displayPhoneNumber ? `· ${org.whatsapp.displayPhoneNumber}` : '· WhatsApp Business'}` : 'WhatsApp needs attention'}
-          </div>
-        </div>
-
-        <div className="rounded-2xl border border-white/10 bg-white/[0.055] p-4 backdrop-blur sm:p-5">
-          <div className="flex items-center justify-between gap-3 border-b border-white/10 pb-4">
-            <div><p className="text-[10px] font-bold uppercase tracking-[0.17em] text-slate-400 dark:text-ink-500">The lead journey</p><p className="mt-1 text-sm font-semibold text-white">One connected workflow</p></div>
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-400/10 text-emerald-300"><Zap size={18} /></span>
-          </div>
-          <div className="mt-4 space-y-2.5">
-            {[
-              { icon: MessageCircle, title: 'Buyer messages on WhatsApp', detail: 'Inquiry captured in the inbox', tint: 'text-emerald-300', bg: 'bg-emerald-400/10' },
-              { icon: Bot, title: 'AI understands requirements', detail: 'Budget, location and BHK signals', tint: 'text-sky-300', bg: 'bg-sky-400/10' },
-              { icon: Building2, title: 'Matching property shared', detail: 'Relevant inventory and details', tint: 'text-violet-300', bg: 'bg-violet-400/10' },
-              { icon: Target, title: 'Lead qualified and scored', detail: 'Intent and readiness become visible', tint: 'text-amber-300', bg: 'bg-amber-400/10' },
-              { icon: CalendarCheck, title: 'Site visit booked', detail: 'Broker can track the next step', tint: 'text-emerald-300', bg: 'bg-emerald-400/10' },
-            ].map((step, index) => {
-              const Icon = step.icon;
-              return <div key={step.title} className="relative flex items-center gap-3 rounded-xl border border-white/[0.06] bg-[#0e1d31]/80 p-3">
-                {index < 4 && <span className="absolute left-[27px] top-[46px] z-10 h-3 w-px bg-white/15" />}
-                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${step.bg} ${step.tint}`}><Icon size={17} /></span>
-                <div className="min-w-0 flex-1"><p className="text-xs font-semibold text-slate-100 sm:text-sm">{step.title}</p><p className="mt-0.5 text-[11px] leading-4 text-slate-400 dark:text-ink-500">{step.detail}</p></div>
-                <span className="text-[10px] font-semibold tabular-nums text-slate-500 dark:text-ink-400">0{index + 1}</span>
-              </div>;
-            })}
-          </div>
-          <p className="mt-3 text-[10px] leading-4 text-slate-500 dark:text-ink-400">Workflow overview · Actual outcomes depend on your connected number, AI settings, inventory and buyer responses.</p>
-        </div>
-      </div>
-    </section>
-
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
       <MetricCard icon={Users} label="Total leads" value={cards.totalLeads} hint={`${number(cards.todaysUploads)} added today`} tone="bg-blue-50 text-blue-700 ring-blue-600/10" to="/leads" loading={loading && !summary} />
-      <MetricCard icon={Flame} label="Qualified leads" value={qualifiedLeads} hint={`${number(cards.hotLeads)} hot · ${number(cards.warmLeads)} warm`} tone="bg-rose-50 text-rose-700 ring-rose-600/10" to="/qualified-leads" loading={loading && !summary} />
+      <MetricCard icon={Flame} label="Qualified leads" value={qualifiedLeads} hint={`${number(cards.hotLeads)} hot · ${number(cards.warmLeads)} warm`} tone="bg-rose-50 text-rose-700 ring-rose-600/10" to="/whatsapp/leads" loading={loading && !summary} />
       <MetricCard icon={MessageSquare} label="Active conversations" value={cards.activeConversations} hint={`${number(cards.repliesReceived)} replies received`} tone="bg-emerald-50 text-emerald-700 ring-emerald-600/10" to="/whatsapp/conversations" loading={loading && !summary} />
       <MetricCard icon={CalendarCheck} label="Site visits scheduled" value={cards.siteVisitsScheduled} hint={`${number(cards.siteVisitsCompleted)} completed`} tone="bg-violet-50 text-violet-700 ring-violet-600/10" to="/site-visits" loading={loading && !summary} />
     </div>
 
+    <SourcePerformance />
+
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
       <section className="min-w-0 rounded-2xl border border-slate-200/80 bg-white dark:border-ink-800 dark:bg-ink-900 p-5 shadow-[0_2px_12px_rgba(15,23,42,0.025)] sm:p-6">
-        <SectionHeading eyebrow="Lead conversion" title="Your sales pipeline" description="See how buyer inquiries move toward a site visit." action={<Link to="/qualified-leads" className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800">View qualified leads <ArrowRight size={14} /></Link>} />
+        <SectionHeading eyebrow="Lead conversion" title="Your sales pipeline" description="See how buyer inquiries move toward a site visit." action={<Link to="/whatsapp/leads" className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800">View qualified leads <ArrowRight size={14} /></Link>} />
         {loading && !summary ? <div className="mt-6 space-y-5">{[1, 2, 3, 4].map((item) => <div key={item} className="h-9 animate-pulse rounded-lg bg-slate-100" />)}</div> : funnel.length === 0 || funnel.every((item) => Number(item.count || 0) === 0) ? <div className="mt-5"><EmptyState icon={Target} title="Your pipeline starts with a lead" body="Import leads or capture your first inquiry to see qualification and site-visit progress here." action={<Link to="/leads" className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-700">Open leads <ArrowRight size={14} /></Link>} /></div> : <div className="mt-6 space-y-4">{funnel.map((item, index) => {
           const count = Number(item.count || 0);
           const width = count > 0 ? Math.max(4, (count / maxFunnel) * 100) : 0;

@@ -1,209 +1,73 @@
-import { useEffect, useState, useCallback } from 'react';
-import { UserCircle, Building2, Mail, Phone, KeyRound, Loader2, Save, MessageCircle, ArrowUpRight, CheckCircle2, AlertCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Loader2, Save } from 'lucide-react';
 
 import { authApi } from '../../api/authApi.js';
 import { settingsApi } from '../../api/settingsApi.js';
 import { useAuthStore } from '../../store/authStore.js';
-import { whatsappApi } from '../../api/whatsappApi.js';
-import { useNavigate } from 'react-router-dom';
 
+/** Bilkul basic profile: company, phone, password. Baaki sab Settings me. */
 export default function ProfilePage() {
-  const { user, setSession, accessToken } = useAuthStore();
-  const navigate = useNavigate();
-
+  const { setSession, accessToken } = useAuthStore();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-
+  const [msg, setMsg] = useState(null);
   const [companyName, setCompanyName] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
 
-  const [resetSending, setResetSending] = useState(false);
-  const [resetSent, setResetSent] = useState(false);
-  const [whatsappStatus, setWhatsappStatus] = useState(null);
-
-  const fetchProfile = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const [meRes, settingsRes, whatsappRes] = await Promise.all([
-        authApi.me(), settingsApi.get(), whatsappApi.status().catch(() => null),
-      ]);
-      setEmail(meRes.data.user.email || '');
-      setPhone(meRes.data.user.phone || '');
-      setCompanyName(settingsRes.data.settings.companyName || '');
-      setWhatsappStatus(whatsappRes?.data || null);
-    } catch (err) {
-      setError(err?.response?.data?.message || 'Profile load nahi ho paayi');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
-    fetchProfile();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    Promise.all([authApi.me(), settingsApi.get()])
+      .then(([me, st]) => {
+        setEmail(me.data.user.email || '');
+        setPhone(me.data.user.phone || '');
+        setCompanyName(st.data.settings.companyName || '');
+      })
+      .catch((err) => setMsg({ ok: false, text: err?.response?.data?.message || 'Profile load nahi ho paayi' }))
+      .finally(() => setLoading(false));
   }, []);
 
   const handleSave = async (e) => {
     e.preventDefault();
     setSaving(true);
-    setError('');
-    setSuccess('');
+    setMsg(null);
     try {
-      const [profileRes] = await Promise.all([
-        authApi.updateProfile({ phone }),
-        settingsApi.update({ companyName }),
-      ]);
+      const [profileRes] = await Promise.all([authApi.updateProfile({ phone }), settingsApi.update({ companyName })]);
       setSession(profileRes.data.user, accessToken);
-      setSuccess('Profile updated');
-      setTimeout(() => setSuccess(''), 2500);
+      setMsg({ ok: true, text: 'Save ho gaya' });
     } catch (err) {
-      setError(err?.response?.data?.message || 'Update fail ho gaya');
+      setMsg({ ok: false, text: err?.response?.data?.message || 'Save nahi hua' });
     } finally {
       setSaving(false);
     }
   };
 
-  const handleForgotPassword = async () => {
-    if (!email) return;
-    setResetSending(true);
-    setError('');
-    try {
-      await authApi.forgotPassword({ email });
-      setResetSent(true);
-      setTimeout(() => setResetSent(false), 5000);
-    } catch (err) {
-      setError(err?.response?.data?.message || 'Reset link bhejne mein dikkat hui');
-    } finally {
-      setResetSending(false);
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-24">
-        <Loader2 className="animate-spin text-ink-400" size={28} />
-      </div>
-    );
-  }
+  if (loading) return <div className="flex justify-center py-24"><Loader2 className="animate-spin text-ink-400" size={28} /></div>;
 
   return (
-    <div className="mx-auto max-w-xl">
-      <div className="flex items-center gap-3">
-        <span className="flex h-12 w-12 items-center justify-center rounded-full bg-brand-100 text-lg font-semibold text-brand-700 dark:bg-brand-900 dark:text-brand-200">
-          {user?.name?.[0]?.toUpperCase() || <UserCircle size={22} />}
-        </span>
-        <div>
-          <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Profile</h1>
-          {/* <p className="mt-0.5 text-sm capitalize text-ink-500 dark:text-ink-400">{user?.role}</p> */}
-        </div>
-      </div>
+    <div className="mx-auto max-w-md space-y-4">
+      <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">My profile</h1>
+      {msg && <p className={`rounded-lg px-4 py-2.5 text-sm ${msg.ok ? 'bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300' : 'bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300'}`}>{msg.text}</p>}
 
-      {error && (
-        <div className="mt-6 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
-          {error}
-        </div>
-      )}
-      {success && (
-        <div className="mt-6 rounded-lg bg-green-50 px-4 py-3 text-sm text-green-700 dark:bg-green-950 dark:text-green-300">
-          {success}
-        </div>
-      )}
-
-      <form onSubmit={handleSave} className="card mt-6 space-y-5">
-        <div>
-          <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-ink-700 dark:text-ink-300">
-            <Building2 size={15} /> Company Name
-          </label>
-          <input
-            className="input-field"
-            value={companyName}
-            onChange={(e) => setCompanyName(e.target.value)}
-            placeholder="Your company / agency name"
-          />
-        </div>
-
-        <div>
-          <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-ink-700 dark:text-ink-300">
-            <Mail size={15} /> Email
-          </label>
-          <input
-            type="email"
-            required
-            readOnly
-            aria-readonly="true"
-            className="input-field cursor-not-allowed opacity-75"
-            value={email}
-          />
-          <p className="mt-1 text-xs text-ink-500 dark:text-ink-400">Login email verified hai; email change karne ke liye additional verification required hogi.</p>
-        </div>
-
-        <div>
-          <label className="mb-1.5 flex items-center gap-1.5 text-sm font-medium text-ink-700 dark:text-ink-300">
-            <Phone size={15} /> Phone
-          </label>
-          <input
-            className="input-field"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="9876543210"
-          />
-        </div>
-
+      <form onSubmit={handleSave} className="card space-y-4">
+        <label className="block text-sm font-medium text-ink-700 dark:text-ink-300">Company
+          <input className="input-field mt-1" value={companyName} onChange={(e) => setCompanyName(e.target.value)} />
+        </label>
+        <label className="block text-sm font-medium text-ink-700 dark:text-ink-300">Email
+          <input readOnly className="input-field mt-1 cursor-not-allowed opacity-70" value={email} />
+        </label>
+        <label className="block text-sm font-medium text-ink-700 dark:text-ink-300">Phone
+          <input className="input-field mt-1" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="9876543210" />
+        </label>
         <button type="submit" disabled={saving} className="btn-primary flex w-full items-center justify-center gap-2">
-          {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />}
-          {saving ? 'Saving…' : 'Save changes'}
+          {saving ? <Loader2 className="animate-spin" size={16} /> : <Save size={16} />} Save
         </button>
       </form>
 
-      <div className="card mt-4">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"><MessageCircle size={19} /></span>
-            <div>
-              <h2 className="text-base font-semibold text-ink-900 dark:text-white">WhatsApp Business connection</h2>
-              <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Official Meta Cloud API, approved templates aur connection status manage karein.</p>
-              <div className="mt-2 flex items-center gap-2 text-xs">
-                {whatsappStatus?.configured && !whatsappStatus?.disconnected ? <><CheckCircle2 size={14} className="text-green-600" /><span className="font-semibold text-green-700 dark:text-green-300">Configured</span></> : <><AlertCircle size={14} className="text-amber-600" /><span className="font-semibold text-amber-700 dark:text-amber-300">{whatsappStatus?.disconnected ? 'Disconnected' : 'Needs configuration'}</span></>}
-                {whatsappStatus?.phoneNumber && <span className="text-ink-500">· {whatsappStatus.phoneNumber}</span>}
-              </div>
-            </div>
-          </div>
-          <button type="button" onClick={() => navigate('/whatsapp')} className="btn-secondary flex items-center gap-2">Manage connection <ArrowUpRight size={15} /></button>
-        </div>
-      </div>
-
-      <div className="card mt-4">
-        <h2 className="flex items-center gap-1.5 text-base font-semibold text-ink-900 dark:text-white">
-          <KeyRound size={17} /> Password
-        </h2>
-        <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">
-          Password badalne ke liye ek reset link aapke email par bhej denge.
-        </p>
-        <button
-          type="button"
-          onClick={handleForgotPassword}
-          disabled={resetSending || !email}
-          className="btn-secondary mt-3 flex items-center gap-2"
-        >
-          {resetSending ? <Loader2 className="animate-spin" size={16} /> : <KeyRound size={16} />}
-          {resetSending ? 'Sending…' : 'Forgot Password'}
-        </button>
-        {resetSent && (
-          <p className="mt-2 text-sm text-green-600 dark:text-green-400">
-            Reset link {email} par bhej diya gaya hai (agar account exist karta hai).
-          </p>
-        )}
-        <ChangePasswordForm />
-      </div>
+      <ChangePasswordForm />
     </div>
   );
 }
 
-/** Logged-in password change (needed after a teammate gets a temporary password). */
 function ChangePasswordForm() {
   const user = useAuthStore((s) => s.user);
   const setUser = useAuthStore((s) => s.setUser);
@@ -223,13 +87,12 @@ function ChangePasswordForm() {
     }
   };
   return (
-    <form onSubmit={submit} className="mt-5 border-t border-ink-100 pt-4 dark:border-ink-800">
-      {user?.mustChangePassword && <p className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">Aap temporary password se login hain — naya password set kar lijiye.</p>}
-      <div className="grid gap-3 sm:grid-cols-2">
-        <input type="password" autoComplete="current-password" className="input-field" placeholder="Current password" required value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} />
-        <input type="password" autoComplete="new-password" className="input-field" placeholder="New password (8+, 1 capital, 1 number)" required value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} />
-      </div>
-      <div className="mt-3 flex items-center gap-3">
+    <form onSubmit={submit} className="card space-y-3">
+      <h2 className="text-sm font-semibold text-ink-900 dark:text-white">Password badlein</h2>
+      {user?.mustChangePassword && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">Aap temporary password se login hain, naya password set kar lijiye.</p>}
+      <input type="password" autoComplete="current-password" className="input-field" placeholder="Purana password" required value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} />
+      <input type="password" autoComplete="new-password" className="input-field" placeholder="Naya password (8+, 1 capital, 1 number)" required value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} />
+      <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={state.busy}>Change password</button>
         {state.msg && <span className={`text-sm ${state.msg.ok ? 'text-green-700' : 'text-red-600'}`}>{state.msg.text}</span>}
       </div>
