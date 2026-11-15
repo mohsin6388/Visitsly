@@ -3,6 +3,7 @@ import { FileText, ImagePlus, Loader2, Maximize2, Plus, Trash2, X } from 'lucide
 import { propertyApi } from '../../api/propertyApi.js';
 import { siteApi, siteKey } from '../../api/siteApi.js';
 import { uploadApi } from '../../api/uploadApi.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 /**
  * Properties in "Excel mode": a spreadsheet grid where every cell is edited
@@ -189,7 +190,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
   };
 
   const removeRow = async (property) => {
-    if (!window.confirm(`"${property.projectName}" row delete karni hai?`)) return;
+    if (!(await confirmDialog({ title: `"${property.projectName}" delete karein?`, message: 'Ye row hat jayegi.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
     try { await propertyApi.remove(property._id); await load(); onChanged?.(); }
     catch (err) { setError(err?.response?.data?.message || 'Row delete nahi hui.'); }
   };

@@ -5,6 +5,7 @@ import { orgApi } from '../../api/saasApi.js';
 import { useAuthStore, useOrgRole } from '../../store/authStore.js';
 import { ROLE_LABEL, ROLE_HELP, fmtDate } from '../../lib/saas.jsx';
 import { COUNTRY_OPTIONS } from '../../lib/country.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 function CompanyProfile() {
   const org = useAuthStore((s) => s.org);
@@ -201,7 +202,7 @@ export default function TeamPage() {
   };
 
   const resetPw = async (m) => {
-    if (!window.confirm(`${m.name} ka naya temporary password banayein? Purana password kaam nahi karega.`)) return;
+    if (!(await confirmDialog({ title: `${m.name} ka password reset karein?`, message: 'Naya temporary password banega, purana kaam nahi karega.', confirmLabel: 'Reset karein' }))) return;
     try {
       const res = await orgApi.resetMemberPassword(m.id);
       setCred({ title: `${m.name} ka naya password`, email: m.email, password: res.data.tempPassword });

@@ -6,6 +6,7 @@ import { emailApi } from '../../api/emailApi.js';
 import { uploadApi } from '../../api/uploadApi.js';
 import WhatsAppPreview, { partsFromTemplate } from '../../components/WhatsAppPreview.jsx';
 import { useAuthStore } from '../../store/authStore.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 const EMAIL_CATEGORIES = [
   { value: 'marketing', label: 'Marketing' }, { value: 'follow_up', label: 'Follow-up' },
@@ -139,7 +140,7 @@ export default function TemplateManagerPage({ channel = 'email' }) {
   };
 
   const deleteEmail = async (template) => {
-    if (!window.confirm(`Delete email template "${template.name}"? Existing campaigns ka saved content safe rahega.`)) return;
+    if (!(await confirmDialog({ title: `"${template.name}" template delete karein?`, message: 'Purane campaigns ka saved content safe rahega.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
     setDeletingId(template._id); setError(''); setNotice('');
     try { await emailApi.deleteTemplate(template._id); setNotice('Email template delete ho gaya.'); await loadItems(); }
     catch (err) { setError(err?.response?.data?.message || 'Template delete nahi hua.'); }
@@ -147,7 +148,7 @@ export default function TemplateManagerPage({ channel = 'email' }) {
   };
 
   const deleteWhatsApp = async (template) => {
-    if (!window.confirm(`Meta se WhatsApp template "${template.name}" delete karna hai? Ye action undo nahi ho sakta.`)) return;
+    if (!(await confirmDialog({ title: `"${template.name}" template delete karein?`, message: 'Ye Meta se bhi hat jayega aur undo nahi ho sakta.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
     setDeletingId(template.name); setError(''); setNotice('');
     try { const result = await whatsappApi.deleteTemplate(template.name); setNotice(result.message || 'WhatsApp template Meta se delete ho gaya.'); await loadItems(); }
     catch (err) { setError(err?.response?.data?.message || 'Meta template delete nahi hua. Permissions ya template status check karein.'); }

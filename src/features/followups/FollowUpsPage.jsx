@@ -4,6 +4,7 @@ import { followUpApi } from '../../api/followUpApi.js';
 import ChatPopup from '../../components/ChatPopup.jsx';
 import FollowUpSetup from './FollowUpSetup.jsx';
 import { Notice, errText } from '../../lib/saas.jsx';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 const TABS = [['today', 'Aaj / baaki'], ['upcoming', 'Aane wale'], ['history', 'Ho chuke']];
 const TEMP = {
@@ -54,11 +55,11 @@ export default function FollowUpsPage() {
     setBusy(id); setMsg(null);
     try { const r = await fn(); setMsg({ ok: true, text: okText || r?.message || 'Ho gaya' }); } catch (e) { setMsg({ ok: false, text: errText(e) }); } finally { setBusy(''); load(); }
   };
-  const sendNow = (f) => {
-    if (!window.confirm(`${f.leadId?.name || 'Lead'} ko abhi WhatsApp par bhejein?`)) return;
+  const sendNow = async (f) => {
+    if (!(await confirmDialog({ title: `${f.leadId?.name || 'Lead'} ko abhi bhejein?`, message: 'Follow-up WhatsApp par abhi chala jayega.', confirmLabel: 'Abhi bhejein' }))) return;
     act(f._id, () => followUpApi.send(f._id), 'Follow-up bhej diya');
   };
-  const remove = (id) => { if (window.confirm('Ye follow-up hata dein?')) act(id, () => followUpApi.remove(id), 'Hata diya'); };
+  const remove = async (id) => { if (await confirmDialog({ title: 'Follow-up hata dein?', confirmLabel: 'Hata dein', cancelLabel: 'Rehne dein', danger: true })) act(id, () => followUpApi.remove(id), 'Hata diya'); };
   const startEdit = (f) => { setEditingId(f._id); setEditDate(toLocalInput(f.nextFollowUpDate)); setEditMessage(f.nextFollowUpMessage); };
   const saveEdit = (id) => act(id, async () => { await followUpApi.update(id, { nextFollowUpDate: new Date(editDate).toISOString(), nextFollowUpMessage: editMessage }); setEditingId(null); }, 'Save ho gaya');
 

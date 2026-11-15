@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Globe, Link2, Mail, Webhook, Facebook, RefreshCw, Loader2, Share2, CheckCircle2, Building2 } from 'lucide-react';
 import { growthApi } from '../../api/saasApi.js';
 import { CopyBox, Toggle, PageTitle, Notice, errText, SOURCE_LABEL } from '../../lib/saas.jsx';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 function loadFacebookSdk(appId, version) {
   if (window.FB) return Promise.resolve(window.FB);
@@ -203,7 +204,7 @@ export default function LeadSourcesPage() {
 
       <p className="flex flex-wrap items-center justify-between gap-3 text-xs text-ink-500">
         <span>Link leak ho gaya ya spam aa raha hai? Naya link banane par purane saare form aur URL band ho jayenge.</span>
-        <button className="btn-secondary gap-2 !py-1.5 text-xs" disabled={busy} onClick={() => { if (window.confirm('Purane saare form links aur webhooks band ho jayenge. Naya link banayein?')) run(async () => refresh(await growthApi.updateSources({ regenerateKey: true }), 'Naya link ban gaya')); }}><RefreshCw size={13} /> Naya link banayein</button>
+        <button className="btn-secondary gap-2 !py-1.5 text-xs" disabled={busy} onClick={async () => { if (await confirmDialog({ title: 'Naya link banayein?', message: 'Purane saare form links aur webhooks band ho jayenge.', confirmLabel: 'Naya link banayein' })) run(async () => refresh(await growthApi.updateSources({ regenerateKey: true }), 'Naya link ban gaya')); }}><RefreshCw size={13} /> Naya link banayein</button>
       </p>
     </div>
   );

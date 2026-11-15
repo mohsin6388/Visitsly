@@ -21,35 +21,35 @@ export default function StatusChip({ job }) {
   if (job.status === 'processing') {
     return (
       <span className={`${base} bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200`}>
-        <Loader2 size={13} className="animate-spin" /> Sending…
+        <Loader2 size={13} className="animate-spin" /> Bhej raha hai…
       </span>
     );
   }
   if (job.status === 'sent') {
     return (
       <span className={`${base} bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300`}>
-        <CheckCircle2 size={13} /> Sent{job.sentAt ? ` · ${fmtDateTime(job.sentAt)}` : ''}
+        <CheckCircle2 size={13} /> Bheja gaya{job.sentAt ? ` · ${fmtDateTime(job.sentAt)}` : ''}
       </span>
     );
   }
   if (job.status === 'failed') {
     return (
       <span className={`${base} bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300`}>
-        <XCircle size={13} /> Failed
+        <XCircle size={13} /> Fail hua
       </span>
     );
   }
   if (job.status === 'paused') {
     return (
       <span className={`${base} bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300`}>
-        <Pause size={13} /> Paused
+        <Pause size={13} /> Ruka hua
       </span>
     );
   }
   if (job.status === 'cancelled') {
     return (
       <span className={`${base} bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400`}>
-        <Ban size={13} /> Cancelled
+        <Ban size={13} /> Cancel kiya
       </span>
     );
   }
@@ -63,7 +63,7 @@ export default function StatusChip({ job }) {
   }
   return (
     <span className={`${base} bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300`}>
-      <Hourglass size={13} /> In queue
+      <Hourglass size={13} /> Line mein
     </span>
   );
 }

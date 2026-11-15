@@ -23,6 +23,7 @@ import PropertyFormModal from "./PropertyFormModal.jsx";
 import ImportPropertiesModal from "./ImportPropertiesModal.jsx";
 import PropertySheet from "./PropertySheet.jsx";
 import SiteBrochures from "./SiteBrochures.jsx";
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 export default function PropertiesPage() {
   // "Excel mode" (spreadsheet grid) is the default view; cards are still available.
@@ -107,7 +108,7 @@ export default function PropertiesPage() {
   // ==========================================
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this property?")) return;
+    if (!(await confirmDialog({ title: 'Property delete karein?', message: 'Ye action undo nahi ho sakta.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
 
     await propertyApi.remove(id);
 
@@ -119,7 +120,7 @@ export default function PropertiesPage() {
   // ==========================================
 
   const handleBulkDelete = async () => {
-    if (!selected.length || !confirm(`Delete ${selected.length} properties?`)) {
+    if (!selected.length || !(await confirmDialog({ title: `${selected.length} properties delete karein?`, message: 'Ye action undo nahi ho sakta.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) {
       return;
     }
 

@@ -4,6 +4,7 @@ import { CheckCircle2, AlertTriangle, Loader2, Mail, Send, Trash2 } from 'lucide
 import { emailApi } from '../../api/emailApi.js';
 import { useOrgRole } from '../../store/authStore.js';
 import { PageTitle, Notice, errText } from '../../lib/saas.jsx';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 const PRESETS = {
   gmail: { label: 'Gmail / Google Workspace', host: 'smtp.gmail.com', port: 587, secure: false },
@@ -81,7 +82,7 @@ export default function EmailSetupPage() {
   };
 
   const remove = async () => {
-    if (!window.confirm('Email account hata dein? Campaigns tab tak band rahenge jab tak naya connect na karein.')) return;
+    if (!(await confirmDialog({ title: 'Email account hata dein?', message: 'Naya account connect hone tak email campaigns band rahenge.', confirmLabel: 'Hata dein', danger: true }))) return;
     setBusy('remove');
     try {
       await emailApi.removeAccount();

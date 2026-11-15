@@ -4,7 +4,7 @@ import { Loader2, Check, CreditCard, Receipt, AlertTriangle, Phone, Mail, Gift, 
 import { billingApi, growthApi } from '../../api/saasApi.js';
 import { useAuthStore } from '../../store/authStore.js';
 import { fmtDate, StatusPill, UsageBar, LIMIT_LABEL, loadRazorpay, errText } from '../../lib/saas.jsx';
-import { showDialog, toast, Skeleton } from '../../components/ui/index.jsx';
+import { showDialog, toast, Skeleton, confirmDialog } from '../../components/ui/index.jsx';
 
 export function money(n, currency = 'INR') {
   const v = Number(n) || 0;
@@ -147,7 +147,7 @@ export default function BillingPage() {
   };
 
   const cancel = async () => {
-    if (!window.confirm('Subscription current period ke end par band ho jayega. Data safe rahega. Cancel karein?')) return;
+    if (!(await confirmDialog({ title: 'Subscription cancel karein?', message: 'Current period ke end par band ho jayegi. Aapka data safe rahega.', confirmLabel: 'Cancel karein', cancelLabel: 'Rehne dein', danger: true }))) return;
     setBusy('cancel');
     try {
       const res = await billingApi.cancel();

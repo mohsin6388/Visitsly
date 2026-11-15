@@ -18,6 +18,7 @@ import {
 import { settingsApi } from '../../api/settingsApi.js';
 import { whatsappApi } from '../../api/whatsappApi.js';
 import { emailApi } from '../../api/emailApi.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 /** Small reusable ON/OFF switch — no design-system toggle exists yet in this app. */
 function Toggle({ checked, onChange, disabled }) {
@@ -173,7 +174,7 @@ export default function SettingsPage() {
   };
 
   const handleDisconnect = async () => {
-    if (!window.confirm('WhatsApp disconnect karein? AI aur manual dono replies rukk jaayenge jab tak reconnect nahi karte.')) return;
+    if (!(await confirmDialog({ title: 'WhatsApp disconnect karein?', message: 'Jab tak reconnect nahi karte, AI aur manual dono replies ruk jayenge.', confirmLabel: 'Disconnect karein', danger: true }))) return;
     setWaBusy(true);
     try {
       await whatsappApi.disconnect();
