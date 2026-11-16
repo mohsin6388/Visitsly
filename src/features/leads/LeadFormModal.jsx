@@ -1,6 +1,8 @@
-import { useState } from 'react';
-import { X } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { X, CheckCircle2, MessageCircle, Mail, Loader2, AlertTriangle } from 'lucide-react';
 import { leadApi } from '../../api/leadApi.js';
+import { normalizePhone, isValidEmail, formatPhone } from '../../lib/phone.js';
+import CampaignLauncher from '../outreach/CampaignLauncher.jsx';
 
 // Upload Data contact: name, mobile, email, address, job title (+ optional city & notes).
 // Lead status / score are set by the AI from replies, not typed by hand.
@@ -8,7 +10,11 @@ const EMPTY_FORM = {
   name: '', phone: '', email: '', address: '', jobTitle: '', city: '', notes: '',
 };
 
-export default function LeadFormModal({ lead, onClose, onSaved }) {
+const INPUT = 'w-full rounded-lg border bg-white px-3 py-2 text-sm dark:bg-ink-800 dark:text-white';
+const okBorder = 'border-ink-200 dark:border-ink-700';
+const badBorder = 'border-red-400 focus:border-red-500 dark:border-red-500';
+
+export default function LeadFormModal({ lead, onClose, onSaved, onChanged }) {
   const isEdit = Boolean(lead);
   const [form, setForm] = useState(() =>
     isEdit
@@ -19,75 +25,138 @@ export default function LeadFormModal({ lead, onClose, onSaved }) {
         }
       : EMPTY_FORM
   );
+  const [touched, setTouched] = useState({});
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [created, setCreated] = useState(null); // lead just added -> "message bhejna hai?"
+  const [launcher, setLauncher] = useState(null); // 'whatsapp' | 'email'
+  const [sentChannel, setSentChannel] = useState('');
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+  const touch = (key) => () => setTouched((t) => ({ ...t, [key]: true }));
+
+  const phoneResult = useMemo(() => (form.phone.trim() ? normalizePhone(form.phone) : null), [form.phone]);
+  const emailValid = !form.email.trim() || isValidEmail(form.email.trim());
+  const phoneError = phoneResult && !phoneResult.ok ? phoneResult.error : '';
+  const emailError = !emailValid ? 'Email ka format sahi nahi hai (jaise name@gmail.com)' : '';
+  const needOne = !form.phone.trim() && !form.email.trim();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    setTouched({ phone: true, email: true });
+    if (needOne) { setError('Mobile number ya email mein se ek zaroor likhein.'); return; }
+    if (phoneError || emailError) return;
     setSaving(true);
     try {
-      if (!String(form.phone || '').trim() && !String(form.email || '').trim()) {
-        setError('Phone ya email mein se kam se kam ek zaroori hai');
-        setSaving(false);
-        return;
-      }
       const payload = {
         ...form,
+        name: form.name.trim(),
+        phone: phoneResult?.ok ? phoneResult.phone : '',
+        email: form.email.trim().toLowerCase(),
       };
       if (isEdit) {
         await leadApi.update(lead._id, payload);
+        onSaved();
       } else {
-        await leadApi.create(payload);
+        const res = await leadApi.create(payload);
+        setCreated(res.data.lead);
+        onChanged?.();
       }
-      onSaved();
     } catch (err) {
-      setError(err?.response?.data?.message || 'Something went wrong');
+      setError(err?.response?.data?.message || 'Contact save nahi hua. Dobara try karein.');
     } finally {
       setSaving(false);
     }
   };
+
+  // ---------- Step 2: contact saved -> offer to message it ----------
+  if (created) {
+    const hasPhone = Boolean(created.phone);
+    const hasEmail = Boolean(created.email);
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+        <div className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl dark:bg-ink-900">
+          <span className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"><CheckCircle2 size={28} /></span>
+          <h2 className="mt-4 font-display text-lg font-bold text-ink-900 dark:text-white">Contact upload ho gaya</h2>
+          <p className="mt-1 text-sm text-ink-600 dark:text-ink-300"><b>{created.name}</b>{hasPhone ? ` · ${formatPhone(created.phone)}` : ''}{hasEmail ? ` · ${created.email}` : ''}</p>
+          <div className="mt-5 rounded-xl border border-brand-200 bg-brand-50/60 p-4 text-left dark:border-brand-900 dark:bg-brand-950/20">
+            <p className="text-sm font-semibold text-ink-900 dark:text-white">Kya aap isko message bhejna chahte hain?</p>
+            <p className="mt-1 text-xs leading-5 text-ink-600 dark:text-ink-300">Contact apne aap select ho jayega. Aap abhi bhej sakte hain ya baad ke liye schedule kar sakte hain.</p>
+            <div className="mt-3 grid gap-2">
+              {hasPhone && <button type="button" onClick={() => setLauncher('whatsapp')} className="flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700"><MessageCircle size={16} /> {sentChannel === 'whatsapp' ? 'WhatsApp ho gaya ✓ (dobara bhejein)' : 'WhatsApp par bhejein / schedule karein'}</button>}
+              {hasEmail && <button type="button" onClick={() => setLauncher('email')} className="flex items-center justify-center gap-2 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-sky-700"><Mail size={16} /> {sentChannel === 'email' ? 'Email ho gaya ✓ (dobara bhejein)' : 'Email par bhejein / schedule karein'}</button>}
+            </div>
+          </div>
+          <button type="button" onClick={onSaved} className="mt-4 w-full text-sm font-semibold text-ink-500 hover:text-ink-800 dark:hover:text-ink-200">{sentChannel ? 'Band karein' : 'Abhi nahi, baad mein'}</button>
+        </div>
+        {launcher && (
+          <CampaignLauncher
+            key={launcher}
+            channel={launcher}
+            initialLeadIds={[created._id]}
+            lockSelection
+            lockLabel={<>Sirf <b>{created.name}</b> select hai.</>}
+            defaultMode="now"
+            zIndex={70}
+            initialName={`${created.name} · ${launcher === 'whatsapp' ? 'WhatsApp' : 'Email'}`.slice(0, 120)}
+            onClose={() => setLauncher(null)}
+            onLaunched={() => { setSentChannel(launcher); setTimeout(() => setLauncher(null), 900); }}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl bg-white p-6 dark:bg-ink-900">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">
-            {isEdit ? 'Edit contact' : 'Add contact'}
+            {isEdit ? 'Contact edit karein' : 'Contact add karein'}
           </h2>
-          <button onClick={onClose} className="text-ink-400 hover:text-ink-700 dark:hover:text-white">
+          <button onClick={onClose} className="text-ink-400 hover:text-ink-700 dark:hover:text-white" aria-label="Band karein">
             <X size={20} />
           </button>
         </div>
 
         {error && (
-          <div className="mb-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
-            {error}
+          <div role="alert" className="mb-4 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">
+            <AlertTriangle size={15} className="mt-0.5 shrink-0" />{error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+        <form onSubmit={handleSubmit} className="space-y-3" noValidate>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Name (optional)" value={form.name} onChange={set('name')} placeholder="Ayush Sharma" />
-            <Field label="Mobile / WhatsApp" value={form.phone} onChange={set('phone')} placeholder="91 98765 43210" inputMode="tel" />
+            <Field
+              label="Mobile / WhatsApp"
+              value={form.phone}
+              onChange={(e) => setForm((f) => ({ ...f, phone: e.target.value.replace(/[^\d+\s().-]/g, '') }))}
+              onBlur={touch('phone')}
+              placeholder="98765 43210"
+              inputMode="tel"
+              maxLength={20}
+              error={touched.phone && phoneError}
+              hint={phoneResult?.ok ? `Save hoga: ${formatPhone(phoneResult.phone)}` : 'Bas 10 digit likhein — 91 apne aap lag jayega'}
+              hintOk={phoneResult?.ok}
+            />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Email" type="email" value={form.email} onChange={set('email')} placeholder="name@email.com" />
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field label="Email" type="email" value={form.email} onChange={set('email')} onBlur={touch('email')} placeholder="name@email.com" error={touched.email && emailError} />
             <Field label="Job title" value={form.jobTitle} onChange={set('jobTitle')} placeholder="Bank Manager" />
           </div>
           <TextArea label="Address" value={form.address} onChange={set('address')} placeholder="Area, city" />
           <Field label="City (optional)" value={form.city} onChange={set('city')} />
           <TextArea label="Notes (optional)" value={form.notes} onChange={set('notes')} />
-          <p className="text-[11px] text-ink-400">Mobile ya email mein se ek zaroori hai. Save karne se koi message nahi jaata.</p>
+          <p className="text-[11px] text-ink-400">Mobile ya email mein se ek zaroori hai. Save karne se koi message nahi jata — save ke baad aap chahein to bhej ya schedule kar sakte hain.</p>
 
           <div className="mt-4 flex justify-end gap-2">
             <button type="button" onClick={onClose} className="rounded-lg px-4 py-2 text-sm font-medium text-ink-600 hover:bg-ink-100 dark:text-ink-300 dark:hover:bg-ink-800">
               Cancel
             </button>
-            <button type="submit" disabled={saving} className="rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
-              {saving ? 'Saving...' : isEdit ? 'Update contact' : 'Save contact'}
+            <button type="submit" disabled={saving} className="flex items-center gap-2 rounded-lg bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700 disabled:opacity-50">
+              {saving && <Loader2 size={15} className="animate-spin" />}{saving ? 'Save ho raha hai…' : isEdit ? 'Update karein' : 'Contact save karein'}
             </button>
           </div>
         </form>
@@ -96,15 +165,13 @@ export default function LeadFormModal({ lead, onClose, onSaved }) {
   );
 }
 
-function Field({ label, ...props }) {
+function Field({ label, error, hint, hintOk, ...props }) {
   return (
     <div>
       <label className="mb-1 block text-xs font-medium text-ink-500 dark:text-ink-400">{label}</label>
-      <input
-        aria-label={label}
-        {...props}
-        className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
-      />
+      <input aria-label={label} aria-invalid={Boolean(error)} {...props} className={`${INPUT} ${error ? badBorder : okBorder}`} />
+      {error ? <p className="mt-1 text-[11px] font-medium text-red-600 dark:text-red-400">{error}</p>
+        : hint ? <p className={`mt-1 text-[11px] ${hintOk ? 'font-medium text-emerald-600 dark:text-emerald-400' : 'text-ink-400'}`}>{hint}</p> : null}
     </div>
   );
 }
@@ -113,12 +180,7 @@ function TextArea({ label, ...props }) {
   return (
     <div>
       <label className="mb-1 block text-xs font-medium text-ink-500 dark:text-ink-400">{label}</label>
-      <textarea
-        aria-label={label}
-        rows={2}
-        {...props}
-        className="w-full rounded-lg border border-ink-200 bg-white px-3 py-2 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
-      />
+      <textarea aria-label={label} rows={2} {...props} className={`${INPUT} ${okBorder}`} />
     </div>
   );
 }

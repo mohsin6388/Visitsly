@@ -86,11 +86,11 @@ function ScheduleBox({ count, schedule, setSchedule }) {
   );
 }
 
-export default function CampaignLauncher({ channel, onClose, onLaunched, initialTemplate = '', initialLeadIds = null, initialName = '', lockSelection = false }) {
+export default function CampaignLauncher({ channel, onClose, onLaunched, initialTemplate = '', initialLeadIds = null, initialName = '', lockSelection = false, defaultMode = '', lockLabel = '', zIndex = 50 }) {
   const isWhatsApp = channel === 'whatsapp';
   const [schedule, setSchedule] = useState(() => {
     const d = new Date(Date.now() + 60 * 60 * 1000);
-    return { mode: initialLeadIds ? 'later' : 'now', date: localDate(d), time: `${pad(d.getHours())}:00`, days: 1 };
+    return { mode: defaultMode || (initialLeadIds ? 'later' : 'now'), date: localDate(d), time: `${pad(d.getHours())}:00`, days: 1 };
   });
   const [source, setSource] = useState('sheet');
   const [fileFilter, setFileFilter] = useState('');
@@ -235,10 +235,10 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
     if (!lower.endsWith('.csv') && !lower.endsWith('.xlsx')) { setUploadState({ loading: false, fileName: '', result: null, error: 'CSV ya Excel (.xlsx) file chunein.' }); return; }
     setUploadState({ loading: true, fileName: file.name, result: null, error: '' });
     try {
-      const preview = await leadApi.importPreview(file);
+      const preview = await leadApi.importPreview(file, isWhatsApp ? 'whatsapp' : 'email');
       const usable = (preview.data.rows || []).filter((row) => row.status !== 'invalid' && (isWhatsApp ? row.phone : row.email));
       if (!usable.length) throw new Error(`Is sheet mein ${isWhatsApp ? 'WhatsApp number' : 'email'} wala koi sahi contact nahi mila.`);
-      const confirm = await leadApi.importConfirm(usable.map(({ status, errors, isDuplicate, duplicateReason, rowNumber, ...row }) => ({ ...row, source: 'bulk_sheet_upload', importFile: file.name })));
+      const confirm = await leadApi.importConfirm(usable.map(({ status, errors, warnings, isDuplicate, duplicateReason, rowNumber, rawPhone, ...row }) => ({ ...row, source: 'bulk_sheet_upload', importFile: file.name })));
       const ids = [...new Set([...(confirm.data.leadIds || []), ...(confirm.data.existingLeadIds || [])].map(String))];
       setSelected(Object.fromEntries(ids.map((id) => [id, true])));
       let savedAudience = null;
@@ -347,7 +347,7 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
     }
   };
 
-  return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-2 sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !launching) onClose?.(); }}>
+  return <div style={{ zIndex }} className="fixed inset-0 flex items-center justify-center bg-black/50 p-2 sm:p-5" onMouseDown={(event) => { if (event.target === event.currentTarget && !launching) onClose?.(); }}>
     <div className="flex max-h-[96vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-ink-900">
       <div className="flex items-start justify-between gap-3 border-b border-ink-100 p-4 dark:border-ink-800 sm:p-5">
         <div className="flex items-start gap-3"><span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${isWhatsApp ? 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'}`}>{isWhatsApp ? <MessageCircle size={21} /> : <Mail size={21} />}</span><div><h2 className="font-display text-xl font-bold text-ink-900 dark:text-white">Create {isWhatsApp ? 'WhatsApp' : 'Email'} campaign</h2><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Audience chunein, template ka preview dekhein, aur bhejein.</p></div></div>
@@ -366,7 +366,7 @@ export default function CampaignLauncher({ channel, onClose, onLaunched, initial
               {lockSelection ? (
                 <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-100">
                   <p className="font-semibold">Step 1 · Kisko bhejna hai?</p>
-                  <p className="mt-1 flex items-center gap-2"><Users size={15} /> Abhi upload kiye gaye <b>{selectedIds.length.toLocaleString('en-IN')}</b> contacts select hain.</p>
+                  <p className="mt-1 flex items-center gap-2"><Users size={15} /> {lockLabel || <>Abhi upload kiye gaye <b>{selectedIds.length.toLocaleString('en-IN')}</b> contacts select hain.</>}</p>
                 </div>
               ) : <>
               <div className="rounded-xl border border-ink-100 p-3 dark:border-ink-800">

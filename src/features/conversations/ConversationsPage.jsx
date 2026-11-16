@@ -9,8 +9,9 @@ import { propertyApi } from '../../api/propertyApi.js';
 import { getSocket } from '../../lib/socket.js';
 import { errText } from '../../lib/saas.jsx';
 import { useOrgRole } from '../../store/authStore.js';
-import { toast, showDialog, SkeletonRows, EmptyState, Modal } from '../../components/ui/index.jsx';
+import { toast, showDialog, SkeletonRows, EmptyState, Modal, confirmDialog } from '../../components/ui/index.jsx';
 import MessageBubble from './MessageBubble.jsx';
+import { WindowClosedBar, WindowOpenHint, TemplateSendModal } from '../../components/WhatsAppWindow.jsx';
 import InsightsPanel, { leadTypeOf } from './InsightsPanel.jsx';
 
 const FILTERS = [
@@ -118,6 +119,7 @@ function PropertyMediaModal({ open, onClose, conversation, onSent }) {
 export default function ConversationsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [templateOpen, setTemplateOpen] = useState(false);
   const role = useOrgRole();
 
   // List
@@ -363,7 +365,7 @@ export default function ConversationsPage() {
         title: '24 ghante wala WhatsApp window band hai',
         message: 'WhatsApp ke rule ke hisaab se, customer ne pichhle 24 ghante mein message nahi kiya to seedha message nahi ja sakta.\n\nCampaign se ek approved template bhejiye — customer jaise hi reply karega, aap yahan se baat kar payenge.',
         actionLabel: 'Template bhejein',
-        onAction: () => navigate('/outreach/whatsapp?new=1'),
+        onAction: () => setTemplateOpen(true),
       });
     } else {
       showDialog({ title: 'Message nahi gaya', message: errText(err) });
@@ -423,7 +425,7 @@ export default function ConversationsPage() {
 
   const handleClose = async () => {
     const closed = active.conversation.status === 'closed';
-    if (!closed && !window.confirm('Ye chat close karein? AI is customer ko reply nahi karega.')) return;
+    if (!closed && !(await confirmDialog({ title: 'Ye chat close karein?', message: 'AI is customer ko reply nahi karega.', confirmLabel: 'Chat close karein' }))) return;
     try {
       const res = closed ? await conversationApi.reopen(activeId) : await conversationApi.close(activeId);
       updateConversation(res.data.conversation);
@@ -580,13 +582,17 @@ export default function ConversationsPage() {
               </div>
             )}
 
-            {!windowOpen ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 bg-white px-4 py-3 text-sm dark:border-ink-800 dark:bg-ink-900">
-                <p className="flex items-start gap-2 text-ink-600 dark:text-ink-300"><Lock size={15} className="mt-0.5 shrink-0" /> Customer ne 24 ghante se reply nahi kiya — WhatsApp rule ke hisaab se ab sirf approved template ja sakta hai.</p>
-                <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => navigate('/outreach/whatsapp?new=1')}>Template bhejein</button>
+            {conv.aiSkipReason && conv.status !== 'manual' && conv.status !== 'closed' && !conv.optedOut && (
+              <div role="status" className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/10 dark:text-amber-200">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span><b>AI ne last message ka reply nahi diya:</b> {conv.aiSkipReason}</span>
               </div>
+            )}
+            {!windowOpen ? (
+              <WindowClosedBar neverReplied={!conv.lastInboundAt} onTemplate={() => setTemplateOpen(true)} className="bg-white dark:bg-ink-900" />
             ) : (
               <form onSubmit={handleSend} className="border-t border-ink-100 bg-white p-2.5 dark:border-ink-800 dark:bg-ink-900">
+                <WindowOpenHint lastInboundAt={conv.lastInboundAt} />
                 {upload && (
                   <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-600 dark:bg-ink-800 dark:text-ink-300">
                     <Loader2 size={14} className="animate-spin" /> <span className="truncate">{upload.name}</span>
@@ -631,6 +637,8 @@ export default function ConversationsPage() {
           )}
         </>
       )}
+
+      {templateOpen && conv && <TemplateSendModal leadId={lead._id || conv.leadId} leadName={lead.name} onClose={() => setTemplateOpen(false)} onSent={() => setTimeout(() => setTemplateOpen(false), 900)} />}
 
       <PropertyMediaModal open={mediaOpen} onClose={() => setMediaOpen(false)} conversation={conv} onSent={(msgs) => setActive((p) => (p ? { ...p, messages: mergeMessages(p.messages, msgs) } : p))} />
 

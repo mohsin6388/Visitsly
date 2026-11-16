@@ -5,9 +5,9 @@ export const DISPLAY_STATUS = {
   running: { label: 'Chal raha hai', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   scheduled: { label: 'Scheduled', className: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300' },
   active: { label: 'Chal raha hai', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
-  paused: { label: 'Paused', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
-  completed: { label: 'Poora ho gaya', className: 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200' },
-  cancelled: { label: 'Cancelled', className: 'bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400' },
+  paused: { label: 'Ruka hua', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
+  completed: { label: 'Poora hua', className: 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200' },
+  cancelled: { label: 'Cancel kiya', className: 'bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400' },
 };
 
 function ChannelBar({ label, s, color }) {
@@ -20,8 +20,8 @@ function ChannelBar({ label, s, color }) {
       <div className="mb-1 flex items-center justify-between text-xs text-ink-600 dark:text-ink-300">
         <span className="flex items-center gap-1 font-medium">{s.processing > 0 && <Loader2 size={11} className="animate-spin text-brand-600" />}{label}</span>
         <span>
-          <b className="text-ink-900 dark:text-white">{s.sent.toLocaleString('en-IN')}</b>/{s.total.toLocaleString('en-IN')} gaye · {pct}%
-          {s.failed > 0 && <span className="text-red-600"> · {s.failed} fail</span>}
+          <b className="text-ink-900 dark:text-white">{s.sent.toLocaleString('en-IN')}</b>/{s.total.toLocaleString('en-IN')} bheje gaye · {pct}% poora
+          {s.failed > 0 && <span className="text-red-600"> · {s.failed} fail hue</span>}
         </span>
       </div>
       <div className="flex h-2 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
@@ -76,10 +76,10 @@ export default function CampaignCard({ campaign, channel, selected, onSelect, on
 
       {(canPause || canResume || failed > 0 || canCancel) && (
         <div className="mt-3 flex flex-wrap gap-2">
-          {canPause && <button type="button" disabled={busy} onClick={() => onAction('pause', c)} className="btn-secondary !px-3 !py-1.5 !text-xs"><Pause size={13} className="mr-1.5" /> Pause</button>}
-          {canResume && <button type="button" disabled={busy} onClick={() => onAction('resume', c)} className="btn-secondary !px-3 !py-1.5 !text-xs"><Play size={13} className="mr-1.5" /> Resume</button>}
+          {canPause && <button type="button" disabled={busy} onClick={() => onAction('pause', c)} className="btn-secondary !px-3 !py-1.5 !text-xs"><Pause size={13} className="mr-1.5" /> Roken</button>}
+          {canResume && <button type="button" disabled={busy} onClick={() => onAction('resume', c)} className="btn-secondary !px-3 !py-1.5 !text-xs"><Play size={13} className="mr-1.5" /> Dobara chalayein</button>}
           {failed > 0 && <button type="button" disabled={busy} onClick={() => onAction('retry', c, channel)} className="btn-secondary !px-3 !py-1.5 !text-xs"><RotateCcw size={13} className="mr-1.5" /> {failed} fail dobara bhejein</button>}
-          {canCancel && <button type="button" disabled={busy} onClick={() => onAction('cancel', c)} className="btn-secondary !px-3 !py-1.5 !text-xs !text-red-600"><Ban size={13} className="mr-1.5" /> Cancel</button>}
+          {canCancel && <button type="button" disabled={busy} onClick={() => onAction('cancel', c)} className="btn-secondary !px-3 !py-1.5 !text-xs !text-red-600"><Ban size={13} className="mr-1.5" /> Cancel karein</button>}
         </div>
       )}
     </div>

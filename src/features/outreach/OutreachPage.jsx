@@ -4,7 +4,7 @@ import {
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   MessageCircle,
   Mail,
@@ -35,6 +35,7 @@ import {
   EmptyState,
   toast,
   showDialog,
+  confirmDialog,
 } from "../../components/ui/index.jsx";
 import { errText } from "../../lib/saas.jsx";
 
@@ -55,23 +56,59 @@ const CHANNEL_META = {
   },
 };
 
-const CAMPAIGN_TABS = [
+// Most-used filters stay as buttons; the rest live in a dropdown.
+const CAMPAIGN_MAIN = [
   { value: "", label: "Sab" },
   { value: "running", label: "Chal rahe" },
   { value: "scheduled", label: "Scheduled" },
-  { value: "paused", label: "Paused" },
-  { value: "completed", label: "Poore" },
-  { value: "cancelled", label: "Cancelled" },
+  { value: "completed", label: "Poore hue" },
+];
+const CAMPAIGN_MORE = [
+  { value: "paused", label: "Ruke hue (Paused)" },
+  { value: "cancelled", label: "Cancel kiye" },
 ];
 
-const JOB_FILTERS = [
+const JOB_MAIN = [
   { value: "", label: "Sab" },
-  { value: "sent", label: "Gaye" },
-  { value: "processing", label: "Ja raha hai" },
-  { value: "pending", label: "Line mein" },
-  { value: "scheduled", label: "Scheduled" },
-  { value: "failed", label: "Fail" },
+  { value: "sent", label: "Bheje gaye" },
+  { value: "failed", label: "Fail hue" },
 ];
+const JOB_MORE = [
+  { value: "processing", label: "Abhi ja rahe hain" },
+  { value: "pending", label: "Line mein" },
+  { value: "scheduled", label: "Aage ki date par" },
+];
+
+/** Buttons for the common filters + a dropdown for the rarely used ones. */
+function FilterBar({ value, onChange, main, more, moreLabel = "Aur filters", label }) {
+  const inMore = more.some((item) => item.value === value);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={label}>
+      {main.map((item) => (
+        <button
+          key={item.value || "all"}
+          type="button"
+          aria-pressed={value === item.value}
+          onClick={() => onChange(item.value)}
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${value === item.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700"}`}
+        >
+          {item.label}
+        </button>
+      ))}
+      <select
+        aria-label={moreLabel}
+        value={inMore ? value : ""}
+        onChange={(e) => onChange(e.target.value || (inMore ? "" : value))}
+        className={`rounded-full border px-3 py-1 text-xs font-semibold outline-none transition ${inMore ? "border-brand-600 bg-brand-600 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-300"}`}
+      >
+        <option value="" className="text-ink-900">{inMore ? "Filter hatayein" : moreLabel}</option>
+        {more.map((item) => (
+          <option key={item.value} value={item.value} className="text-ink-900">{item.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function StatCard({ icon: Icon, label, value, tone, hint, loading }) {
   return (
@@ -263,9 +300,13 @@ export default function OutreachPage({ channel }) {
   const handleAction = async (action, campaign, ch) => {
     if (
       action === "cancel" &&
-      !window.confirm(
-        `"${campaign.name}" cancel karein? Jo messages abhi nahi gaye, woh nahi jayenge.`,
-      )
+      !(await confirmDialog({
+        title: `"${campaign.name}" cancel karein?`,
+        message: "Jo messages abhi nahi gaye, woh nahi jayenge. Jo ja chuke hain unpar koi asar nahi padega.",
+        confirmLabel: "Campaign cancel karein",
+        cancelLabel: "Chalne dein",
+        danger: true,
+      }))
     )
       return;
     setBusy(true);
@@ -361,14 +402,14 @@ export default function OutreachPage({ channel }) {
         />
         <StatCard
           icon={CheckCircle2}
-          label="Gaye (sent)"
+          label="Bheje gaye"
           value={s.sent}
           tone="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
           loading={summaryLoading}
         />
         <StatCard
           icon={Clock}
-          label="Baaki"
+          label="Baaki (queue mein)"
           value={queued}
           tone="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
           hint={
@@ -380,7 +421,7 @@ export default function OutreachPage({ channel }) {
         />
         <StatCard
           icon={XCircle}
-          label="Fail"
+          label="Fail hue"
           value={s.failed}
           tone="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
           loading={summaryLoading}
@@ -439,22 +480,15 @@ export default function OutreachPage({ channel }) {
             </button>
           </div>
         </div>
-        <div className="mb-3 flex flex-wrap gap-1.5" role="tablist">
-          {CAMPAIGN_TABS.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              role="tab"
-              aria-selected={campaignTab === t.value}
-              onClick={() => {
-                setCampaignTab(t.value);
-                setCampaignId("");
-              }}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${campaignTab === t.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300"}`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="mb-3">
+          <FilterBar
+            label="Campaign filter"
+            value={campaignTab}
+            onChange={(v) => { setCampaignTab(v); setCampaignId(""); }}
+            main={CAMPAIGN_MAIN}
+            more={CAMPAIGN_MORE}
+            moreLabel="Aur status"
+          />
         </div>
 
         {campaignsError ? (
@@ -482,7 +516,7 @@ export default function OutreachPage({ channel }) {
               icon={Rocket}
               title={
                 campaignTab || search
-                  ? "Is filter mein koi campaign nahi"
+                  ? "Is filter mein koi campaign nahi mila"
                   : "Abhi koi campaign nahi"
               }
               action={
@@ -499,7 +533,7 @@ export default function OutreachPage({ channel }) {
               }
             >
               {campaignTab || search
-                ? "Doosra filter chunein."
+                ? "Upar se doosra filter chunein ya \"Sab\" dabayein."
                 : "Upload Data se contacts daaliye, phir yahan campaign banaiye — chahein to date/time par schedule bhi kar sakte hain."}
             </EmptyState>
           </div>
@@ -558,24 +592,17 @@ export default function OutreachPage({ channel }) {
                 </button>
               </>
             ) : (
-              "Har contact ka status"
+              "Contacts ka status"
             )}
           </h2>
-          <div className="flex flex-wrap gap-1.5">
-            {JOB_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => {
-                  setFilter(f.value);
-                  setPage(1);
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${filter === f.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700"}`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <FilterBar
+            label="Contact status filter"
+            value={filter}
+            onChange={(v) => { setFilter(v); setPage(1); }}
+            main={JOB_MAIN}
+            more={JOB_MORE}
+            moreLabel="Aur status"
+          />
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
@@ -586,7 +613,7 @@ export default function OutreachPage({ channel }) {
                 <th className="px-4 py-3">
                   {channel === "email" ? "Email" : "Mobile"}
                 </th>
-                <th className="px-4 py-3">Din</th>
+                <th className="px-4 py-3">Kis din</th>
                 <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
@@ -645,12 +672,17 @@ export default function OutreachPage({ channel }) {
                         j.status === "paused" ||
                         j.scheduled) && (
                         <p
-                          className="mt-1 max-w-xs truncate text-xs text-red-600 dark:text-red-400"
-                          title={j.lastError}
+                          className="mt-1 max-w-sm text-xs leading-5 text-red-600 dark:text-red-400"
+                          title={j.lastErrorRaw || j.lastError}
                         >
                           {j.lastError}
                         </p>
                       )}
+                    {j.errorFix === "whatsapp_setup" && j.status === "failed" && (
+                      <Link to="/whatsapp" className="mt-1 inline-block text-xs font-semibold text-brand-700 underline dark:text-brand-300">
+                        WhatsApp setup check karein
+                      </Link>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -3,6 +3,7 @@ import { X, Send, Loader2, CheckCheck, Bot, UserRound } from 'lucide-react';
 import { conversationApi } from '../api/conversationApi.js';
 import { getSocket } from '../lib/socket.js';
 import MessageBubble from '../features/conversations/MessageBubble.jsx';
+import { WindowClosedBar, WindowOpenHint, TemplateSendModal } from './WhatsAppWindow.jsx';
 
 /**
  * Lead ki chat usi page par popup me kholta hai (AI inbox par redirect nahi).
@@ -13,6 +14,7 @@ export default function ChatPopup({ leadId, conversationId, name, onClose }) {
   const [error, setError] = useState('');
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
   const bottomRef = useRef(null);
 
   const load = useCallback(async () => {
@@ -41,7 +43,13 @@ export default function ChatPopup({ leadId, conversationId, name, onClose }) {
     if (!id) return undefined;
     const socket = getSocket();
     const onNew = ({ conversationId: cid, message }) => {
-      if (cid === id) setActive((p) => (p && !p.messages.some((m) => m._id === message._id) ? { ...p, messages: [...p.messages, message] } : p));
+      if (cid !== id) return;
+      setActive((p) => {
+        if (!p) return p;
+        const inbound = message.direction === 'inbound';
+        const conversation = inbound ? { ...p.conversation, lastInboundAt: message.timestamp || new Date().toISOString(), windowOpen: true } : p.conversation;
+        return p.messages.some((m) => m._id === message._id) ? { ...p, conversation } : { ...p, conversation, messages: [...p.messages, message] };
+      });
     };
     socket.on('conversation:newMessage', onNew);
     return () => socket.off('conversation:newMessage', onNew);
@@ -65,13 +73,19 @@ export default function ChatPopup({ leadId, conversationId, name, onClose }) {
       const sent = res?.data?.message;
       if (sent) setActive((p) => (p && !p.messages.some((m) => m._id === sent._id) ? { ...p, messages: [...p.messages, sent] } : p));
     } catch (err) {
-      setError(err?.response?.data?.message || 'Message nahi ja paya');
+      if (err?.response?.data?.details?.code === 'WHATSAPP_24H_WINDOW_CLOSED') {
+        setActive((p) => (p ? { ...p, conversation: { ...p.conversation, windowOpen: false } } : p));
+      } else {
+        setError(err?.response?.data?.message || 'Message nahi ja paya');
+      }
     } finally {
       setSending(false);
     }
   };
 
   const manual = active?.conversation?.status === 'manual';
+  const conv = active?.conversation;
+  const windowOpen = conv ? (conv.windowOpen ?? Boolean(conv.lastInboundAt && Date.now() - new Date(conv.lastInboundAt).getTime() < 86400000)) : true;
   const toggleAI = async () => {
     const id = active.conversation._id;
     try {
@@ -107,16 +121,22 @@ export default function ChatPopup({ leadId, conversationId, name, onClose }) {
           <div ref={bottomRef} />
         </div>
 
-        {active && (
-          <form onSubmit={send} className="border-t border-ink-100 p-3 dark:border-ink-800">
-            {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
-            <div className="flex gap-2">
-              <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Message likhein…" className="input-field flex-1" />
-              <button type="submit" disabled={sending || !text.trim()} className="btn-primary flex items-center gap-1.5">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}</button>
+        {conv?.aiSkipReason && conv.status !== 'manual' && conv.status !== 'closed' && !conv.optedOut && <p role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/10 dark:text-amber-200"><b>AI ne last message ka reply nahi diya:</b> {conv.aiSkipReason}</p>}
+        {active && !windowOpen && <WindowClosedBar neverReplied={!conv?.lastInboundAt} onTemplate={() => setTemplateOpen(true)} />}
+        {active && windowOpen && (
+          <form onSubmit={send} className="border-t border-ink-100 dark:border-ink-800">
+            <WindowOpenHint lastInboundAt={conv?.lastInboundAt} />
+            <div className="p-3">
+              {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Message likhein…" className="input-field flex-1" />
+                <button type="submit" disabled={sending || !text.trim()} className="btn-primary flex items-center gap-1.5">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}</button>
+              </div>
             </div>
           </form>
         )}
       </div>
+      {templateOpen && active && <TemplateSendModal leadId={conv?.leadId?._id || leadId} leadName={name || conv?.leadId?.name} onClose={() => setTemplateOpen(false)} onSent={() => setTimeout(() => setTemplateOpen(false), 900)} />}
     </div>
   );
 }

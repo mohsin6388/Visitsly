@@ -100,5 +100,10 @@ export default function MetaBillingSection() {
 
         <p className="mt-3 flex items-start gap-1.5 text-[11px] leading-5 text-ink-400"><Info size={13} className="mt-0.5 shrink-0" />Ye Meta ka andaazan hai (GST alag). Final bill Meta Business Settings → Billing mein aata hai. Data har 30 minute mein refresh hota hai{data.fetchedAt ? ` · last ${new Date(data.fetchedAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}` : ''}.</p>
       </>}
+  <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-ink-100 pt-3 text-xs dark:border-ink-800">
+      <a href="https://business.facebook.com/billing_hub/payment_settings" target="_blank" rel="noreferrer" className="font-medium text-brand-700 underline underline-offset-2 dark:text-brand-300">Meta mein card / payment method</a>
+      <a href="https://business.facebook.com/billing_hub/accounts" target="_blank" rel="noreferrer" className="font-medium text-brand-700 underline underline-offset-2 dark:text-brand-300">Meta invoices dekhein</a>
+      <a href="/whatsapp" className="font-medium text-brand-700 underline underline-offset-2 dark:text-brand-300">WhatsApp setup checklist</a>
+    </div>
   </section>;
 }

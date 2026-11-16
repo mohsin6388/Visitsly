@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info, Loader2, Link2, KeyRound, Unplug, ShieldCheck, RefreshCw, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, Loader2, Link2, KeyRound, Unplug, ShieldCheck, RefreshCw, XCircle, Clock, Circle, ExternalLink, MessageCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { orgApi, growthApi } from '../../api/saasApi.js';
 import { useAuthStore, useOrgRole } from '../../store/authStore.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 /**
  * Lets a company connect ITS OWN WhatsApp Business number to Visitsly.
@@ -71,42 +73,150 @@ function loadFacebookSdk(appId, version) {
   });
 }
 
-/** "Connection check": simple green/amber/red steps with a one-line fix each. */
-function HealthPanel({ canManage }) {
+const META_NAME_URL = 'https://business.facebook.com/latest/whatsapp_manager/phone_numbers';
+const META_PAYMENT_URL = 'https://business.facebook.com/billing_hub/payment_settings';
+const META_TEMPLATES_URL = 'https://business.facebook.com/latest/whatsapp_manager/message_templates';
+const META_PERMISSIONS_URL = 'https://business.facebook.com/settings/whatsapp-business-accounts';
+
+/**
+ * Step-by-step "setup checklist": tells the client exactly what is done, what is
+ * waiting on Meta and what to do next, so they can go live without support.
+ */
+function SetupChecklist({ canManage, connected, wa, onConnect, canUseEmbedded, connectBusy }) {
   const [health, setHealth] = useState(null);
   const [busy, setBusy] = useState('');
   const [error, setError] = useState('');
-  const run = async (fix = false) => {
-    setBusy(fix ? 'fix' : 'check'); setError('');
+  const payKey = `wa_payment_ok_${wa?.phoneNumberId || ''}`;
+  const [paymentDone, setPaymentDone] = useState(() => { try { return localStorage.getItem(payKey) === '1'; } catch { return false; } });
+  const togglePayment = (value) => { setPaymentDone(value); try { localStorage.setItem(payKey, value ? '1' : '0'); } catch { /* storage unavailable */ } };
+
+  const run = async (mode = 'check') => {
+    if (mode !== 'silent') setBusy(mode === 'fix' ? 'fix' : 'check');
+    setError('');
     try {
-      const res = fix ? await orgApi.fixWhatsappWebhook() : await orgApi.whatsappHealth();
+      const res = mode === 'fix' ? await orgApi.fixWhatsappWebhook() : await orgApi.whatsappHealth();
       setHealth(res.data.health);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Check nahi ho paaya. Thodi der baad try karein.');
-    } finally { setBusy(''); }
+      if (mode !== 'silent') setError(err?.response?.data?.message || 'Check nahi ho paaya. Thodi der baad try karein.');
+    } finally { if (mode !== 'silent') setBusy(''); }
   };
-  useEffect(() => { run(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const icon = (state) => state === 'ok' ? <CheckCircle2 size={17} className="text-green-600" /> : state === 'warning' ? <AlertTriangle size={17} className="text-amber-500" /> : <XCircle size={17} className="text-red-600" />;
-  const webhookBad = health?.steps?.some((st) => st.key === 'webhook' && st.state === 'error');
+
+  useEffect(() => { if (connected) run(); else setHealth(null); }, [connected]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stepOf = (key) => health?.steps?.find((st) => st.key === key);
+  const nameStep = stepOf('display_name');
+  const namePending = connected && nameStep?.state === 'pending';
+
+  // Meta approves the display name in the background: keep checking and re-check when the client returns from Meta's tab.
+  useEffect(() => {
+    if (!connected) return undefined;
+    const onVisible = () => { if (document.visibilityState === 'visible') run('silent'); };
+    document.addEventListener('visibilitychange', onVisible);
+    const timer = namePending ? window.setInterval(() => run('silent'), 60000) : null;
+    return () => { document.removeEventListener('visibilitychange', onVisible); if (timer) window.clearInterval(timer); };
+  }, [connected, namePending]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const phoneDigits = String(health?.phone?.display || wa?.displayPhoneNumber || '').replace(/\D/g, '');
+  const registered = stepOf('registered') || stepOf('token');
+  const tokenBad = stepOf('token')?.state === 'error';
+  const webhook = stepOf('webhook');
+  const templates = stepOf('templates');
+  const activity = stepOf('activity');
+  const loaded = connected && Boolean(health);
+  const paymentStep = stepOf('payment');
+  const paymentBroken = paymentStep?.state === 'error' || Boolean(wa?.paymentIssueAt);
+
+  const steps = [
+    {
+      key: 'connect', title: 'Facebook se WhatsApp number connect karein',
+      state: connected ? 'ok' : 'todo',
+      help: connected ? `${wa?.displayPhoneNumber || 'Number'} juda hua hai.` : 'Neeche "Connect with Facebook" dabayein, apna Business number chunein aur 6-digit PIN daalein.',
+      action: !connected && canManage && canUseEmbedded ? <button type="button" onClick={onConnect} disabled={connectBusy} className="btn-primary gap-2 !bg-[#1877F2] !py-1.5 text-xs hover:!bg-[#166FE5]">{connectBusy ? <Loader2 size={13} className="animate-spin" /> : <Link2 size={13} />}Connect with Facebook</button> : null,
+    },
+    {
+      key: 'active', title: 'Number WhatsApp par active hai',
+      state: !loaded ? 'locked' : registered?.state === 'ok' ? 'ok' : 'error',
+      help: !loaded ? 'Pehle number connect karein.' : registered?.state === 'ok' ? registered.help : (registered?.help || wa?.lastError || 'Number active nahi hai.'),
+      links: [{ label: 'Meta mein number status dekhein', href: META_NAME_URL }, { label: 'Business permissions / admin access', href: META_PERMISSIONS_URL }],
+      action: loaded && registered?.state !== 'ok' && canManage && canUseEmbedded ? <button type="button" onClick={onConnect} disabled={connectBusy} className="btn-secondary gap-1.5 !py-1.5 text-xs"><RefreshCw size={13} />{tokenBad ? 'Dobara connect karein' : 'Number dobara register karein'}</button> : null,
+    },
+    {
+      key: 'name', title: 'Business display name Meta se approve hua',
+      state: !loaded ? 'locked' : !nameStep ? 'ok' : nameStep.state === 'pending' ? 'pending' : 'error',
+      help: !loaded ? 'Pehle number connect karein.' : !nameStep ? 'Approve ho chuka hai. Messages bhej sakte hain.' : nameStep.help,
+      note: namePending ? 'Ye Meta karta hai (kuch minute se 48 ghante). Jab tak approve nahi hota, messages nahi jayenge. Ye page apne aap check karta rehta hai, aap wait kar sakte hain.' : '',
+      action: loaded && nameStep ? <a href={META_NAME_URL} target="_blank" rel="noreferrer" className="btn-secondary gap-1.5 !py-1.5 text-xs"><ExternalLink size={13} />Meta mein status dekhein</a> : null,
+    },
+    {
+      key: 'payment', title: 'Meta mein payment method (card) laga hai',
+      state: !loaded ? 'locked' : paymentBroken ? 'error' : paymentDone ? 'ok' : 'todo',
+      help: paymentBroken ? 'Meta ne aapka aakhri message payment method na hone ki wajah se reject kiya (error 131042). Card add karein, phir neeche Test message bhejein — message pahunchte hi ye apne aap theek ho jayega.' : paymentDone ? 'Theek hai.' : 'WhatsApp messages ka kharcha Meta aapke card se leta hai. Card nahi hoga to marketing messages nahi jayenge (error 131042).',
+      action: loaded ? <div className="flex flex-wrap items-center gap-2">{(!paymentDone || paymentBroken) && <a href={META_PAYMENT_URL} target="_blank" rel="noreferrer" className="btn-secondary gap-1.5 !py-1.5 text-xs"><ExternalLink size={13} />Meta mein card add karein</a>}<label className="flex cursor-pointer items-center gap-1.5 text-xs font-medium text-ink-600 dark:text-ink-300"><input type="checkbox" checked={paymentDone} onChange={(e) => togglePayment(e.target.checked)} />Maine card add kar liya</label></div> : null,
+    },
+    {
+      key: 'webhook', title: 'Customer ke reply Visitsly tak aa rahe hain',
+      state: !loaded ? 'locked' : !webhook ? 'locked' : webhook.state === 'ok' ? 'ok' : webhook.state === 'error' ? 'error' : 'todo',
+      help: !loaded ? 'Pehle number connect karein.' : webhook?.state === 'ok' ? 'AI aur inbox ke liye reply aa sakte hain.' : (webhook?.help || ''),
+      action: loaded && webhook && webhook.state !== 'ok' && canManage ? <button type="button" className="btn-primary gap-1.5 !py-1.5 text-xs" disabled={!!busy} onClick={() => run('fix')}>{busy === 'fix' && <Loader2 size={13} className="animate-spin" />}Ek click mein theek karein</button> : null,
+    },
+    {
+      key: 'templates', title: 'Kam se kam ek message template approve hai',
+      state: !loaded ? 'locked' : templates?.state === 'ok' ? 'ok' : 'todo',
+      help: !loaded ? 'Pehle number connect karein.' : templates?.state === 'ok' ? templates.help : 'Naye customer ko pehla message template se hi jata hai. Ek template banayein; Meta approve karta hai (aam taur par kuch minute).',
+      action: loaded && templates?.state !== 'ok' ? <Link to="/whatsapp/templates" className="btn-secondary gap-1.5 !py-1.5 text-xs">Template banayein</Link> : null,
+      links: [{ label: 'Meta mein template status dekhein', href: META_TEMPLATES_URL }],
+    },
+    {
+      key: 'test', title: 'Test: apne phone se "Hi" bhejein',
+      state: !loaded ? 'locked' : activity?.state === 'ok' ? 'ok' : 'todo',
+      help: !loaded ? 'Pehle number connect karein.' : activity?.state === 'ok' ? `Do-tarfa chat chal rahi hai. Aakhri update: ${new Date(activity.help).toLocaleString('en-IN')}` : 'Apne personal WhatsApp se business number par "Hi" bhejein. AI jawab dega aur chat "AI inbox" mein dikhegi. Phir yahan "Dobara check karein" dabayein.',
+      action: loaded && activity?.state !== 'ok' && phoneDigits ? <a href={`https://wa.me/${phoneDigits}?text=Hi`} target="_blank" rel="noreferrer" className="btn-secondary gap-1.5 !py-1.5 text-xs"><MessageCircle size={13} />WhatsApp khol kar "Hi" bhejein</a> : null,
+    },
+  ];
+
+  const doneCount = steps.filter((st) => st.state === 'ok').length;
+  const allDone = doneCount === steps.length;
+  const extras = (health?.steps || []).filter((st) => ['quality', 'limit'].includes(st.key));
+  const icon = (state) => state === 'ok' ? <CheckCircle2 size={18} className="text-green-600" /> : state === 'error' ? <XCircle size={18} className="text-red-600" /> : state === 'pending' ? <Clock size={18} className="text-amber-500" /> : state === 'locked' ? <Circle size={18} className="text-ink-300" /> : <Circle size={18} className="text-brand-600" />;
+  const pill = { ok: ['Ho gaya', 'bg-green-100 text-green-700'], error: ['Theek karein', 'bg-red-100 text-red-700'], pending: ['Meta ka intezaar', 'bg-amber-100 text-amber-800'], todo: ['Baaki hai', 'bg-brand-50 text-brand-700'], locked: ['', ''] };
+
   return (
-    <div className="mt-5 border-t border-ink-100 pt-4 dark:border-ink-800">
+    <div className="mt-6 border-t border-ink-100 pt-5 dark:border-ink-800">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink-800 dark:text-ink-100"><ShieldCheck size={16} className="text-brand-600" /> Connection check {health && (health.ok ? <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] text-green-700">Sab theek hai</span> : <span className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] text-red-700">Dhyan dein</span>)}</p>
-        <button type="button" className="btn-secondary gap-1.5 !py-1.5 text-xs" onClick={() => run()} disabled={!!busy}>{busy === 'check' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Dobara check karein</button>
+        <div>
+          <p className="flex items-center gap-2 text-base font-semibold text-ink-900 dark:text-white"><ShieldCheck size={18} className="text-brand-600" /> WhatsApp setup checklist</p>
+          <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{allDone ? 'Sab ready hai. Aap messages bhej sakte hain aur AI reply karega.' : `${doneCount} / ${steps.length} step ho gaye. Upar se neeche ek-ek karke poore karein.`}</p>
+        </div>
+        {connected && <button type="button" className="btn-secondary gap-1.5 !py-1.5 text-xs" onClick={() => run()} disabled={!!busy}>{busy === 'check' ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />} Dobara check karein</button>}
       </div>
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800"><div className="h-full rounded-full bg-green-500 transition-all" style={{ width: `${(doneCount / steps.length) * 100}%` }} /></div>
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
-      {!health && !error && <p className="mt-3 flex items-center gap-2 text-sm text-ink-500"><Loader2 size={14} className="animate-spin" /> Check ho raha hai…</p>}
-      {health && (
-        <ul className="mt-3 space-y-2">
-          {health.steps.map((st) => (
-            <li key={st.key} className="flex items-start gap-2.5 rounded-lg bg-ink-50 px-3 py-2 text-sm dark:bg-ink-800/60">
+      {connected && !health && !error && <p className="mt-3 flex items-center gap-2 text-sm text-ink-500"><Loader2 size={14} className="animate-spin" /> Meta se status check ho raha hai…</p>}
+      <ol className="mt-4 space-y-2">
+        {steps.map((st, i) => (
+          <li key={st.key} className={`rounded-xl border px-3.5 py-3 ${st.state === 'ok' ? 'border-green-200 bg-green-50/50 dark:border-green-900/50 dark:bg-green-900/10' : st.state === 'error' ? 'border-red-200 bg-red-50/50 dark:border-red-900/50 dark:bg-red-900/10' : st.state === 'pending' ? 'border-amber-200 bg-amber-50/60 dark:border-amber-900/50 dark:bg-amber-900/10' : 'border-ink-100 dark:border-ink-800'} ${st.state === 'locked' ? 'opacity-60' : ''}`}>
+            <div className="flex items-start gap-3">
               <span className="mt-0.5 shrink-0">{icon(st.state)}</span>
-              <span className="min-w-0"><span className="block font-medium text-ink-800 dark:text-ink-100">{st.label}</span>{st.help && <span className="block text-xs text-ink-500 dark:text-ink-400">{st.key === 'activity' && st.state === 'ok' ? new Date(st.help).toLocaleString('en-IN') : st.help}</span>}</span>
-            </li>
-          ))}
-        </ul>
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold text-ink-900 dark:text-white">{i + 1}. {st.title}</p>
+                  {pill[st.state][0] && <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${pill[st.state][1]}`}>{pill[st.state][0]}</span>}
+                </div>
+                {st.help && <p className="mt-1 text-xs leading-5 text-ink-600 dark:text-ink-300">{st.help}</p>}
+                {st.note && <p className="mt-1 text-xs font-medium leading-5 text-amber-800 dark:text-amber-300">{st.note}</p>}
+                {st.action && <div className="mt-2">{st.action}</div>}
+                {st.links && st.state !== 'ok' && <div className="mt-2 flex flex-wrap gap-2">{st.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 dark:text-brand-300"><ExternalLink size={12} />{l.label}</a>)}</div>}
+              </div>
+            </div>
+          </li>
+        ))}
+      </ol>
+      {extras.length > 0 && (
+        <details className="mt-3 text-xs text-ink-500">
+          <summary className="cursor-pointer font-semibold">Aur details (quality, daily limit)</summary>
+          <ul className="mt-2 space-y-1">{extras.map((st) => <li key={st.key}><b>{st.label}:</b> {st.help || 'HIGH'}</li>)}</ul>
+        </details>
       )}
-      {webhookBad && canManage && <button type="button" className="btn-primary mt-3 gap-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => run(true)}>{busy === 'fix' && <Loader2 size={13} className="animate-spin" />}Fix karein</button>}
     </div>
   );
 }
@@ -138,7 +248,7 @@ function ExtraNumbers({ wa, onUpdated, canManage }) {
     }
   };
   const remove = async (n) => {
-    if (!window.confirm(`${n.displayPhoneNumber || n.phoneNumberId} hata dein?`)) return;
+    if (!(await confirmDialog({ title: `${n.displayPhoneNumber || n.phoneNumberId} hata dein?`, confirmLabel: 'Hata dein', danger: true }))) return;
     const res = await growthApi.removeNumber(n.phoneNumberId);
     onUpdated(res.data.whatsapp);
   };
@@ -567,7 +677,7 @@ export default function ConnectWhatsApp({ onChange }) {
   };
 
   const disconnect = async () => {
-    if (!window.confirm('WhatsApp number Visitsly se hata dein? AI replies aur bulk messages ruk jayenge. Chats ka data safe rahega.')) return;
+    if (!(await confirmDialog({ title: 'WhatsApp number hata dein?', message: 'AI replies aur bulk messages ruk jayenge. Chats ka data safe rahega.', confirmLabel: 'Hata dein', danger: true }))) return;
     clearConnectionError();
     setBusy(true);
     try {
@@ -670,7 +780,7 @@ export default function ConnectWhatsApp({ onChange }) {
         </div>
       )}
 
-      {connected && <HealthPanel canManage={canManage} />}
+      <SetupChecklist canManage={canManage} connected={connected} wa={wa} onConnect={startEmbedded} canUseEmbedded={canUseEmbedded} connectBusy={busy} />
       {connected && <ExtraNumbers wa={wa} canManage={canManage} onUpdated={(next) => { setWa(next); void onChange?.(); }} />}
 
       {pinPromptOpen && pendingAttempt && (
@@ -688,7 +798,7 @@ export default function ConnectWhatsApp({ onChange }) {
             <label className="mt-4 block text-sm font-medium text-ink-800 dark:text-ink-100">6-digit WhatsApp registration PIN
               <input className="input-field mt-1.5 text-center font-mono text-lg tracking-[0.4em]" type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" required value={registrationPin} onChange={(event) => setRegistrationPin(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" />
             </label>
-            <p className="mt-2 text-xs leading-5 text-ink-400">Fresh Cloud API registration ke liye Meta ke mutabik PIN set/enter karein; already registered number ke liye current two-step verification PIN use ho sakta hai. Visitsly PIN database mein save nahi karta. Agar PIN ka sure nahi hai, repeated guesses na karein.</p>
+            <p className="mt-2 text-xs leading-5 text-ink-400">Ye PIN aap khud tay karte hain: koi bhi 6 digit chunein aur yaad rakhein (jaise 482913). Naya number hai to ye PIN pehli baar set ho jata hai. Pehle se WhatsApp Business par chalne wala number hai to uska purana two-step PIN daalein. Visitsly PIN save nahi karta. Galat PIN baar-baar na daalein, Meta kuch der ke liye rok deta hai.</p>
             {error && <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"><p className="font-semibold">{errorTitle || 'Setup error'}</p><p className="mt-1">{error}</p>{errorHelp && <p className="mt-1 leading-5">Next step: {errorHelp}</p>}{errorCode && <p className="mt-2 font-mono text-xs">Code: {errorCode}{errorStage ? ` · Stage: ${errorStage}` : ''}</p>}</div>}
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button type="button" disabled={busy} className="btn-secondary" onClick={() => { setPinPromptOpen(false); setRegistrationPin(''); setConnectStage(''); clearConnectionError(); }}>Do later</button>

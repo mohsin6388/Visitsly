@@ -3,6 +3,7 @@ import { Plus, MapPin, Trash2, CalendarClock, CheckCircle2, AlertCircle, Loader2
 import ChatPopup from '../../components/ChatPopup.jsx';
 import { meetingApi } from '../../api/meetingApi.js';
 import ScheduleVisitModal from './ScheduleVisitModal.jsx';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 const STATUSES = ['scheduled', 'visited', 'not_visited', 'rescheduled', 'cancelled'];
 const STATUS_LABEL = { scheduled: 'Baki hai', visited: 'Aa gaye', not_visited: 'Nahi aaye', rescheduled: 'Date badli', cancelled: 'Cancel' };
@@ -58,7 +59,7 @@ export default function SiteVisitsPage() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this site visit?')) return;
+    if (!(await confirmDialog({ title: 'Site visit delete karein?', message: 'Ye action undo nahi ho sakta.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
     setError('');
     try { await meetingApi.remove(id); await fetchList(); }
     catch (err) { setError(err?.response?.data?.message || 'Site visit delete nahi ho paaya'); }

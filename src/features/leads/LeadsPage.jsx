@@ -1,12 +1,14 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import ChatPopup from '../../components/ChatPopup.jsx';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Upload, Search, Trash2, Pencil, Mail, MessageCircle, Users, UserPlus, MessageSquare, Download, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Plus, Upload, Search, Trash2, Pencil, Mail, MessageCircle, Users, UserPlus, MessageSquare, Download, RefreshCw, AlertTriangle, CheckCircle2, X } from 'lucide-react';
 import { leadApi } from '../../api/leadApi.js';
 import LeadFormModal from './LeadFormModal.jsx';
 import ImportLeadsModal from './ImportLeadsModal.jsx';
 import SaveAudienceModal from '../audiences/SaveAudienceModal.jsx';
 import { downloadSampleSheet } from '../../lib/sampleSheet.js';
+import { formatPhone, isBadStoredPhone } from '../../lib/phone.js';
+import { confirmDialog, Skeleton } from '../../components/ui/index.jsx';
 
 const fmtDate = (v) => {
   if (!v) return '—';
@@ -27,12 +29,12 @@ function Pill({ tone, children }) {
   return <span className={`inline-flex whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold ${TONE[tone]}`}>{children}</span>;
 }
 
-function Stat({ label, value, icon: Icon, tone, active, onClick }) {
+function Stat({ label, value, icon: Icon, tone, active, onClick, loading }) {
   return (
     <button type="button" onClick={onClick} className={`card !p-4 text-left transition ${active ? 'ring-2 ring-brand-500' : 'hover:border-brand-300'}`}>
       <div className="flex items-center gap-3">
         <span className={`flex h-10 w-10 items-center justify-center rounded-xl ${tone}`}><Icon size={18} /></span>
-        <div><p className="text-xs text-ink-500 dark:text-ink-400">{label}</p><p className="font-display text-2xl font-bold text-ink-900 dark:text-white">{Number(value || 0).toLocaleString('en-IN')}</p></div>
+        <div><p className="text-xs text-ink-500 dark:text-ink-400">{label}</p>{loading ? <Skeleton className="mt-1 h-7 w-12" /> : <p className="font-display text-2xl font-bold text-ink-900 dark:text-white">{Number(value || 0).toLocaleString('en-IN')}</p>}</div>
       </div>
     </button>
   );
@@ -55,6 +57,9 @@ export default function LeadsPage({ mode = 'all' }) {
   const [summary, setSummary] = useState({});
   const [sources, setSources] = useState([]);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [firstLoad, setFirstLoad] = useState(true);
+  const requestId = useRef(0);
   const [channel, setChannel] = useState('');
   const [replied, setReplied] = useState('');
   const [source, setSource] = useState('');
@@ -70,46 +75,56 @@ export default function LeadsPage({ mode = 'all' }) {
 
   const effectiveChannel = isWa ? 'whatsapp' : channel;
 
+  // Typing waits a moment; filter dropdowns fetch immediately.
+  useEffect(() => { const t = setTimeout(() => setDebouncedSearch(search.trim()), 300); return () => clearTimeout(t); }, [search]);
+
   const fetchLeads = useCallback(async (page = 1) => {
+    const myRequest = ++requestId.current;
     setLoading(true); setError('');
     try {
       const res = await leadApi.list({
         page, limit: 50,
-        ...(search.trim() ? { search: search.trim() } : {}),
+        ...(debouncedSearch ? { search: debouncedSearch } : {}),
         ...(effectiveChannel ? { channel: effectiveChannel } : {}),
         ...(replied ? { replied } : {}),
         ...(source ? { source } : {}),
         ...(isWa && delivery ? { delivery } : {}),
       });
+      if (myRequest !== requestId.current) return; // a newer request is already running
       setLeads(res.data.leads || []);
       setPagination(res.data.pagination || { page, limit: 50, total: 0, totalPages: 1 });
       setSummary(res.data.summary || {});
       setSources(res.data.sources || []);
       setSelected([]);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Data load nahi hua.');
-    } finally { setLoading(false); }
-  }, [search, effectiveChannel, replied, source, delivery, isWa]);
+      if (myRequest !== requestId.current) return;
+      setError(err?.response?.data?.message || 'Data load nahi hua. Internet check karke refresh dabayein.');
+    } finally {
+      if (myRequest === requestId.current) { setLoading(false); setFirstLoad(false); }
+    }
+  }, [debouncedSearch, effectiveChannel, replied, source, delivery, isWa]);
 
-  useEffect(() => { const t = setTimeout(() => fetchLeads(1), 250); return () => clearTimeout(t); }, [fetchLeads]);
+  useEffect(() => { fetchLeads(1); }, [fetchLeads]);
 
   const toggleSelect = (id) => setSelected((items) => (items.includes(id) ? items.filter((x) => x !== id) : [...items, id]));
   const pageIds = leads.map((l) => l._id);
   const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.includes(id));
   const togglePage = () => setSelected((items) => (allOnPage ? items.filter((id) => !pageIds.includes(id)) : [...new Set([...items, ...pageIds])]));
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Ye contact delete karein?')) return;
-    try { await leadApi.remove(id); await fetchLeads(Math.min(pagination.page, pagination.totalPages || 1)); }
+  const handleDelete = async (lead) => {
+    if (!(await confirmDialog({ title: `${lead.name || 'Ye contact'} delete karein?`, message: 'Is contact ki chat aur history bhi hat jayegi. Ye action undo nahi ho sakta.', confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
+    try { await leadApi.remove(lead._id); setNotice('Contact delete ho gaya.'); await fetchLeads(Math.min(pagination.page, pagination.totalPages || 1)); }
     catch (err) { setError(err?.response?.data?.message || 'Delete nahi hua.'); }
   };
   const handleBulkDelete = async () => {
-    if (!selected.length || !window.confirm(`${selected.length} contacts delete karein?`)) return;
-    try { await leadApi.bulkDelete(selected); setSelected([]); await fetchLeads(1); }
+    if (!selected.length) return;
+    if (!(await confirmDialog({ title: `${selected.length} contacts delete karein?`, message: 'Inki chat aur history bhi hat jayegi. Ye action undo nahi ho sakta.', confirmLabel: 'Sab delete karein', cancelLabel: 'Rehne dein', danger: true }))) return;
+    try { await leadApi.bulkDelete(selected); setSelected([]); setNotice(`${selected.length} contacts delete ho gaye.`); await fetchLeads(1); }
     catch (err) { setError(err?.response?.data?.message || 'Delete nahi hua.'); }
   };
 
-  const columns = isWa ? ['Name', 'Mobile', 'Message', 'Reply', ''] : ['', 'Name', 'Mobile', 'Email', 'Source', 'Added', ''];
+  const serialStart = ((pagination.page || 1) - 1) * (pagination.limit || 50);
+  const columns = isWa ? ['No.', 'Name', 'Mobile', 'Message', 'Reply', ''] : ['', 'No.', 'Name', 'Mobile', 'Email', 'Source', 'Added', ''];
 
   return (
     <div className="mx-auto max-w-[1400px] space-y-4">
@@ -130,16 +145,17 @@ export default function LeadsPage({ mode = 'all' }) {
 
       {!isWa && (
         <div className="grid grid-cols-3 gap-3">
-          <Stat label="Total" value={summary.total} icon={Users} tone="bg-brand-50 text-brand-600 dark:bg-brand-900/30" active={!channel} onClick={() => setChannel('')} />
-          <Stat label="WhatsApp" value={summary.whatsappAvailable} icon={MessageCircle} tone="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30" active={channel === 'whatsapp'} onClick={() => setChannel(channel === 'whatsapp' ? '' : 'whatsapp')} />
-          <Stat label="Email" value={summary.emailAvailable} icon={Mail} tone="bg-sky-50 text-sky-600 dark:bg-sky-900/30" active={channel === 'email'} onClick={() => setChannel(channel === 'email' ? '' : 'email')} />
+          <Stat loading={firstLoad} label="Total" value={summary.total} icon={Users} tone="bg-brand-50 text-brand-600 dark:bg-brand-900/30" active={!channel} onClick={() => setChannel('')} />
+          <Stat loading={firstLoad} label="WhatsApp" value={summary.whatsappAvailable} icon={MessageCircle} tone="bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30" active={channel === 'whatsapp'} onClick={() => setChannel(channel === 'whatsapp' ? '' : 'whatsapp')} />
+          <Stat loading={firstLoad} label="Email" value={summary.emailAvailable} icon={Mail} tone="bg-sky-50 text-sky-600 dark:bg-sky-900/30" active={channel === 'email'} onClick={() => setChannel(channel === 'email' ? '' : 'email')} />
         </div>
       )}
 
       <div className="card flex flex-wrap items-center gap-2 !p-3">
-        <div className="relative w-full sm:w-60">
+        <div className="relative min-w-[240px] flex-1 sm:max-w-md">
           <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search" className="input-field !py-2 !pl-9 text-sm" aria-label="Search" />
+          <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Name, mobile ya email se search karein" className="input-field !py-2 !pl-9 !pr-8 text-sm" aria-label="Search" />
+          {search && <button type="button" onClick={() => setSearch('')} aria-label="Search clear karein" className="absolute right-2.5 top-1/2 -translate-y-1/2 text-ink-400 hover:text-ink-700"><X size={14} /></button>}
         </div>
         {!isWa && (
           <Select label="Channel" value={channel} onChange={setChannel}>
@@ -165,33 +181,35 @@ export default function LeadsPage({ mode = 'all' }) {
         </>}
       </div>
 
-      <div className="card overflow-hidden !p-0">
-        <div className="overflow-x-auto">
+      <div className="card relative overflow-hidden !p-0">
+        {loading && !firstLoad && <div className="absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden bg-brand-100"><div className="h-full w-1/3 animate-[loadbar_1s_ease-in-out_infinite] bg-brand-600" /></div>}
+        <div className={`overflow-x-auto transition-opacity ${loading && !firstLoad ? 'opacity-60' : ''}`}>
           <table className="w-full min-w-[720px] text-sm">
             <thead className="bg-ink-50 dark:bg-ink-800">
               <tr>{columns.map((h, i) => <th key={`${h}-${i}`} className="whitespace-nowrap px-3 py-3 text-left text-xs font-semibold uppercase tracking-wide text-ink-500 dark:text-ink-300">{!isWa && i === 0 ? <input type="checkbox" checked={allOnPage} onChange={togglePage} aria-label="Select all" /> : h}</th>)}</tr>
             </thead>
             <tbody>
-              {loading && !leads.length ? <tr><td colSpan={columns.length} className="px-4 py-14 text-center text-ink-400">Loading…</td></tr>
-                : !leads.length ? <tr><td colSpan={columns.length} className="px-4 py-14 text-center"><Users size={28} className="mx-auto mb-2 text-ink-300" /><p className="font-semibold text-ink-600 dark:text-ink-300">Koi contact nahi</p></td></tr>
-                : leads.map((lead) => {
+              {loading && !leads.length ? Array.from({ length: 8 }).map((_, i) => <tr key={`sk-${i}`} className="border-t border-ink-100 dark:border-ink-800">{columns.map((c, k) => <td key={k} className="px-3 py-4"><Skeleton className="h-4 w-full max-w-[140px]" /></td>)}</tr>)
+                : !leads.length ? <tr><td colSpan={columns.length} className="px-4 py-14 text-center"><Users size={28} className="mx-auto mb-2 text-ink-300" /><p className="font-semibold text-ink-600 dark:text-ink-300">{debouncedSearch || channel || replied || source || delivery ? 'Is filter mein koi contact nahi' : isWa ? 'Abhi koi WhatsApp contact nahi' : 'Abhi koi contact nahi'}</p>{!isWa && !debouncedSearch && !channel && !replied && !source && <p className="mt-1 text-xs text-ink-400">Upload Data ya Add contact se shuru karein.</p>}</td></tr>
+                : leads.map((lead, rowIndex) => {
                   const [sendText, sendTone] = SEND_LABEL[lead.whatsappMessageStatus] || SEND_LABEL.not_sent;
                   return (
                     <tr key={lead._id} className="border-t border-ink-100 align-middle hover:bg-ink-50/60 dark:border-ink-800 dark:hover:bg-ink-800/40">
                       {!isWa && <td className="px-3 py-3"><input type="checkbox" aria-label={`Select ${lead.name}`} checked={selected.includes(lead._id)} onChange={() => toggleSelect(lead._id)} /></td>}
+                      <td className="whitespace-nowrap px-3 py-3 text-xs font-semibold text-ink-400">{serialStart + rowIndex + 1}</td>
                       <td className="max-w-[220px] px-3 py-3"><p className="truncate font-semibold text-ink-900 dark:text-white">{lead.name || 'Unnamed'}</p>{!isWa && lead.replyReceived && <Pill tone="green">Replied</Pill>}</td>
-                      <td className="whitespace-nowrap px-3 py-3 text-ink-600 dark:text-ink-300">{lead.phone || '—'}</td>
+                      <td className="whitespace-nowrap px-3 py-3 text-ink-600 dark:text-ink-300">{lead.phone ? (isBadStoredPhone(lead.phone) ? <span title="Ye number sahi format mein nahi hai. Edit karke theek karein." className="inline-flex items-center gap-1.5">{lead.phone}<span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">Number check karein</span></span> : formatPhone(lead.phone)) : '—'}</td>
                       {isWa ? <>
                         <td className="px-3 py-3"><Pill tone={sendTone}>{sendText}</Pill><p className="mt-1 text-[11px] text-ink-400">{fmtDate(lead.whatsappSentAt)}</p></td>
                         <td className="px-3 py-3">{lead.whatsappReplyAt ? <Pill tone="green">Replied · {lead.whatsappReplyCount || 1}</Pill> : <Pill tone="gray">No reply</Pill>}<p className="mt-1 text-[11px] text-ink-400">{lead.whatsappReplyAt ? fmtDate(lead.whatsappReplyAt) : ''}</p></td>
-                        <td className="px-3 py-3 text-right">{lead.whatsappReplyAt && <button onClick={() => setChatLead(lead)} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-200"><MessageSquare size={13} /> Chat</button>}</td>
+                        <td className="px-3 py-3 text-right">{(lead.whatsappReplyAt || lead.conversationStarted) && <button onClick={() => setChatLead(lead)} className="inline-flex items-center gap-1 rounded-lg bg-brand-50 px-2.5 py-1.5 text-xs font-semibold text-brand-700 hover:bg-brand-100 dark:bg-brand-900/30 dark:text-brand-200"><MessageSquare size={13} /> Chat</button>}</td>
                       </> : <>
                         <td className="px-3 py-3 text-ink-600 dark:text-ink-300">{lead.email || '—'}</td>
                         <td className="px-3 py-3"><span className="rounded-full bg-ink-100 px-2 py-1 text-[11px] font-semibold capitalize text-ink-600 dark:bg-ink-800 dark:text-ink-300">{sourceLabel(lead.source)}</span></td>
                         <td className="whitespace-nowrap px-3 py-3 text-xs text-ink-500 dark:text-ink-400">{fmtDate(lead.createdAt)}</td>
                         <td className="px-3 py-3"><div className="flex justify-end gap-1">
                           <button aria-label={`Edit ${lead.name}`} onClick={() => { setEditingLead(lead); setShowForm(true); }} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 hover:text-brand-600 dark:hover:bg-ink-800"><Pencil size={15} /></button>
-                          <button aria-label={`Delete ${lead.name}`} onClick={() => handleDelete(lead._id)} className="rounded-lg p-2 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"><Trash2 size={15} /></button>
+                          <button aria-label={`Delete ${lead.name}`} onClick={() => handleDelete(lead)} className="rounded-lg p-2 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"><Trash2 size={15} /></button>
                         </div></td>
                       </>}
                     </tr>
@@ -211,7 +229,7 @@ export default function LeadsPage({ mode = 'all' }) {
       </div>
 
       {chatLead && <ChatPopup leadId={chatLead._id} name={chatLead.name} onClose={() => setChatLead(null)} />}
-      {showForm && <LeadFormModal lead={editingLead} onClose={() => setShowForm(false)} onSaved={() => { setShowForm(false); fetchLeads(pagination.page); }} />}
+      {showForm && <LeadFormModal lead={editingLead} onClose={() => setShowForm(false)} onChanged={() => fetchLeads(editingLead ? pagination.page : 1)} onSaved={() => { setShowForm(false); fetchLeads(editingLead ? pagination.page : 1); }} />}
       {showImport && <ImportLeadsModal onClose={() => setShowImport(false)} onImported={() => fetchLeads(1)} />}
       {showAudience && <SaveAudienceModal leadIds={selected} source="selection" onClose={() => setShowAudience(false)} onSaved={(a) => { setShowAudience(false); setSelected([]); setNotice(`Audience "${a.name}" save ho gaya.`); }} />}
     </div>

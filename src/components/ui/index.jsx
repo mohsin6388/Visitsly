@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { create } from 'zustand';
-import { AlertTriangle, CheckCircle2, Info, X, XCircle, Loader2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, X, XCircle, Loader2, Trash2 } from 'lucide-react';
 
 /* ------------------------------------------------------------------ */
 /* Toasts + error popups (one global store, mounted once in the layout) */
@@ -9,6 +9,7 @@ let seq = 0;
 export const useToastStore = create((set) => ({
   toasts: [],
   dialog: null, // { tone, title, message, actionLabel, onAction }
+  confirm: null, // { title, message, confirmLabel, cancelLabel, danger, resolve }
   push: (t) => {
     const id = ++seq;
     set((s) => ({ toasts: [...s.toasts.slice(-3), { id, ...t }] }));
@@ -18,6 +19,8 @@ export const useToastStore = create((set) => ({
   dismiss: (id) => set((s) => ({ toasts: s.toasts.filter((x) => x.id !== id) })),
   openDialog: (dialog) => set({ dialog }),
   closeDialog: () => set({ dialog: null }),
+  openConfirm: (confirm) => set({ confirm }),
+  closeConfirm: () => set({ confirm: null }),
 }));
 
 export const toast = {
@@ -31,6 +34,20 @@ export function showDialog({ tone = 'error', title, message, actionLabel, onActi
   useToastStore.getState().openDialog({ tone, title, message, actionLabel, onAction });
 }
 
+/**
+ * Replacement for window.confirm(). Usage: `if (!(await confirmDialog({ title, message }))) return;`
+ * Set danger: true for delete-type actions (red button).
+ */
+export function confirmDialog({ title = 'Pakka karein?', message = '', confirmLabel = 'Haan, karein', cancelLabel = 'Nahi', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const prev = useToastStore.getState().confirm;
+    prev?.resolve(false);
+    useToastStore.getState().openConfirm({ title, message, confirmLabel, cancelLabel, danger, resolve });
+  });
+}
+/** Shortcut for delete confirmations. */
+export const confirmDelete = (what, message = 'Ye action undo nahi ho sakta.') => confirmDialog({ title: `${what} delete karein?`, message, confirmLabel: 'Delete karein', cancelLabel: 'Rehne dein', danger: true });
+
 const TONE = {
   success: ['border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/80 dark:text-emerald-100', CheckCircle2],
   error: ['border-red-200 bg-red-50 text-red-900 dark:border-red-900 dark:bg-red-950/80 dark:text-red-100', XCircle],
@@ -39,7 +56,14 @@ const TONE = {
 };
 
 export function Toaster() {
-  const { toasts, dismiss, dialog, closeDialog } = useToastStore();
+  const { toasts, dismiss, dialog, closeDialog, confirm: confirmState, closeConfirm } = useToastStore();
+  const answer = (value) => { confirmState?.resolve(value); closeConfirm(); };
+  useEffect(() => {
+    if (!confirmState) return undefined;
+    const onKey = (e) => { if (e.key === 'Escape') { confirmState.resolve(false); closeConfirm(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [confirmState, closeConfirm]);
   useEffect(() => {
     if (!dialog) return undefined;
     const onKey = (e) => e.key === 'Escape' && closeDialog();
@@ -61,6 +85,25 @@ export function Toaster() {
           );
         })}
       </div>
+      {confirmState && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/40 p-4" onMouseDown={(e) => e.target === e.currentTarget && answer(false)}>
+          <div role="alertdialog" aria-modal="true" aria-label={confirmState.title} className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl dark:bg-ink-900">
+            <div className="flex items-start gap-3">
+              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${confirmState.danger ? 'bg-red-100 text-red-600 dark:bg-red-900/30' : 'bg-amber-100 text-amber-600 dark:bg-amber-900/30'}`}>
+                {confirmState.danger ? <Trash2 size={18} /> : <AlertTriangle size={18} />}
+              </span>
+              <div className="min-w-0">
+                <h2 className="font-display text-base font-bold text-ink-900 dark:text-white">{confirmState.title}</h2>
+                {confirmState.message && <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink-600 dark:text-ink-300">{confirmState.message}</p>}
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <button type="button" className="btn-secondary !py-2" onClick={() => answer(false)} autoFocus>{confirmState.cancelLabel}</button>
+              <button type="button" onClick={() => answer(true)} className={confirmState.danger ? 'rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700' : 'btn-primary !py-2'}>{confirmState.confirmLabel}</button>
+            </div>
+          </div>
+        </div>
+      )}
       {dialog && (
         <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => e.target === e.currentTarget && closeDialog()}>
           <div role="alertdialog" aria-modal="true" className="w-full max-w-md rounded-2xl bg-white p-6 text-center shadow-2xl dark:bg-ink-900">
