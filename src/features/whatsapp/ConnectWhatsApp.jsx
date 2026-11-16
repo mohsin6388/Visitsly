@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Info, Loader2, Link2, KeyRound, Unplug, ShieldCheck, RefreshCw, XCircle, Clock, Circle, ExternalLink, MessageCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Info, Loader2, Link2, KeyRound, Unplug, ShieldCheck, RefreshCw, XCircle, Clock, Circle, ExternalLink, MessageCircle, Send, Smartphone } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { orgApi, growthApi } from '../../api/saasApi.js';
 import { useAuthStore, useOrgRole } from '../../store/authStore.js';
@@ -283,6 +283,83 @@ function ExtraNumbers({ wa, onUpdated, canManage }) {
   );
 }
 
+/** After connecting: send one real test message to the owner's own phone. */
+function TestMessageCard({ wa, onSent }) {
+  const [phone, setPhone] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+  const send = async (event) => {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    setResult(null);
+    try {
+      const res = await orgApi.sendWhatsappTestMessage({ phone: phone.trim() });
+      setResult(res.data);
+      onSent?.(res.data.whatsapp);
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Test message nahi ja paaya. Thodi der baad try karein.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-5 rounded-xl border border-green-200 bg-green-50/50 p-4 dark:border-green-900/50 dark:bg-green-900/10">
+      <p className="flex items-center gap-2 text-sm font-semibold text-ink-900 dark:text-white"><Send size={16} className="text-green-600" /> Test message bhejkar check karein</p>
+      <p className="mt-1 text-xs leading-5 text-ink-600 dark:text-ink-300">Apna personal WhatsApp number (country code ke saath) daalein. Visitsly us par ek test message bhejega, taaki aap dekh lein ki connection sahi chal raha hai.</p>
+      <form onSubmit={send} className="mt-3 flex flex-wrap items-center gap-2">
+        <input className="input-field max-w-xs flex-1 font-mono" inputMode="tel" placeholder="919876543210" required value={phone} onChange={(e) => setPhone(e.target.value.replace(/[^\d+\s-]/g, ''))} />
+        <button className="btn-primary gap-2" disabled={busy || phone.replace(/\D/g, '').length < 9}>{busy ? <Loader2 size={15} className="animate-spin" /> : <Send size={15} />}Test message bhejein</button>
+      </form>
+      {error && <p role="alert" className="mt-2 text-sm text-red-600">{error}</p>}
+      {result && <p role="status" className="mt-2 flex items-start gap-1.5 text-sm text-green-700 dark:text-green-300"><CheckCircle2 size={16} className="mt-0.5 shrink-0" /><span>Message bhej diya gaya{result.mode === 'template' ? ' (Meta ka standard "hello_world" template)' : ''}. Apne phone par WhatsApp check karein. Kuch seconds mein aa jana chahiye. Na aaye to “Dobara check karein” dabakar checklist dekhein.</span></p>}
+      {!result && wa?.testMessageSentAt && <p className="mt-2 text-xs text-ink-500">Aakhri test: {new Date(wa.testMessageSentAt).toLocaleString('en-IN')}{wa.testMessageTo ? ` · ${wa.testMessageTo}` : ''}</p>}
+    </div>
+  );
+}
+
+/** Coexistence: shows contacts / chat-history sync and what to do inside the 24h window. */
+function CoexistenceStatus({ wa, canManage, onUpdated }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const c = wa.coexistence || {};
+  const label = (st) => ({ requested: 'Chal raha hai', done: 'Ho gaya', failed: 'Fail hua', declined: 'Aapne history share nahi ki', pending: 'Shuru ho raha hai' }[st] || 'Baaki hai');
+  const tone = (st) => (st === 'done' ? 'text-green-700' : st === 'failed' ? 'text-red-600' : st === 'declined' ? 'text-ink-500' : 'text-amber-700');
+  const deadline = c.syncDeadline ? new Date(c.syncDeadline) : null;
+  const windowOpen = deadline ? deadline.getTime() > Date.now() : false;
+  const needsRetry = ['failed', 'pending', null].includes(c.contactsSyncStatus ?? null) || ['failed', 'pending', null].includes(c.historySyncStatus ?? null);
+  const retry = async () => {
+    setBusy(true);
+    setError('');
+    try {
+      const res = await orgApi.retryCoexistenceSync();
+      onUpdated?.(res.data.whatsapp);
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Sync request nahi ho paayi.');
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 text-sm dark:border-emerald-900/50 dark:bg-emerald-900/10">
+      <p className="flex items-center gap-2 font-semibold text-emerald-900 dark:text-emerald-200"><Smartphone size={16} /> Coexistence: phone app + Visitsly dono chal rahe hain</p>
+      <p className="mt-1 text-xs leading-5 text-ink-600 dark:text-ink-300">Aap WhatsApp Business app se bhi chat kar sakte hain, aur Visitsly AI bhi usi number se reply karega. Phone app se bheje reply Visitsly inbox mein “staff” ke naam se dikhte hain, aur un par AI dobara reply nahi karta.</p>
+      <ul className="mt-3 space-y-1 text-xs">
+        <li>Contacts sync: <b className={tone(c.contactsSyncStatus)}>{label(c.contactsSyncStatus)}</b></li>
+        <li>Chat history sync: <b className={tone(c.historySyncStatus)}>{label(c.historySyncStatus)}</b>{c.historySyncStatus === 'requested' || c.historySyncProgress > 0 ? ` · ${c.historySyncProgress || 0}%` : ''}</li>
+      </ul>
+      {c.historySyncStatus === 'requested' && <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-emerald-100"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${c.historySyncProgress || 0}%` }} /></div>}
+      {c.syncError && <p className="mt-2 text-xs text-red-600">{c.syncError}</p>}
+      {deadline && windowOpen && needsRetry && <p className="mt-2 text-xs text-amber-800">Meta sync ke liye {deadline.toLocaleString('en-IN')} tak ka time deta hai. Iske baad number disconnect karke dobara connect karna padega.</p>}
+      {deadline && !windowOpen && needsRetry && <p className="mt-2 text-xs text-red-600">24 ghante ka sync window khatam ho gaya. Purani chats/contacts laane ke liye phone ke Settings → Account → Business Platform se disconnect karke dobara connect karein.</p>}
+      {error && <p role="alert" className="mt-2 text-xs text-red-600">{error}</p>}
+      {canManage && windowOpen && needsRetry && <button type="button" className="btn-secondary mt-3 gap-1.5 !py-1.5 text-xs" onClick={retry} disabled={busy}>{busy ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}Sync dobara try karein</button>}
+      <p className="mt-3 text-[11px] leading-4 text-ink-500">Disconnect karna ho to phone mein: WhatsApp Business → Settings → Account → Business Platform. Group chats sync nahi hote aur broadcast lists read-only ho jati hain.</p>
+    </div>
+  );
+}
+
 function connectionErrorDetails(errorOrMessage, fallback = 'WhatsApp connection complete nahi ho paaya.') {
   const response = errorOrMessage?.response?.data || {};
   const details = response.details || {};
@@ -518,7 +595,8 @@ export default function ConnectWhatsApp({ onChange }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const startEmbedded = async () => {
+  const startEmbedded = async (mode = 'new') => {
+    const coexistence = mode === 'coexistence';
     clearConnectionError();
     setWa((previous) => previous ? {
       ...previous,
@@ -588,7 +666,10 @@ export default function ConnectWhatsApp({ onChange }) {
         auth_type: 'rerequest',
         response_type: 'code',
         override_default_response_type: true,
-        extras: es.solutionId ? { setup: { solutionID: es.solutionId } } : {},
+        // Coexistence = number already in the WhatsApp Business app (Embedded Signup v4, Session Info v3).
+        extras: coexistence
+          ? { setup: es.solutionId ? { solutionID: es.solutionId } : {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' }
+          : es.solutionId ? { setup: { solutionID: es.solutionId } } : {},
       });
     } catch (err) {
       clearFlowTimer();
@@ -609,7 +690,7 @@ export default function ConnectWhatsApp({ onChange }) {
       showConnectionError('WhatsApp number select karna zaroori hai.', 'Phone number select karein.', 'select_phone_number');
       return;
     }
-    if (!/^\d{6}$/.test(registrationPin)) {
+    if (!pendingAttempt.isCoexistence && !/^\d{6}$/.test(registrationPin)) {
       showConnectionError('Meta registration ke liye 6-digit PIN enter karein.', 'Invalid registration PIN.', 'register_phone_number');
       return;
     }
@@ -620,7 +701,7 @@ export default function ConnectWhatsApp({ onChange }) {
       await orgApi.completeEmbeddedSignup({
         attemptId: pendingAttempt.attemptId,
         phoneNumberId: phoneChoice,
-        pin: registrationPin,
+        ...(pendingAttempt.isCoexistence ? {} : { pin: registrationPin }),
       });
       clearFlowTimer();
       setPinPromptOpen(false);
@@ -629,7 +710,7 @@ export default function ConnectWhatsApp({ onChange }) {
       sessionRef.current = {};
       setConnectStage('');
       clearConnectionError();
-      setSuccessNotice('WhatsApp number successfully connected. Ab leads aur properties setup kar sakte hain.');
+      setSuccessNotice(pendingAttempt.isCoexistence ? 'WhatsApp number coexistence se connect ho gaya. Contacts aur chat history background mein sync ho rahi hain. Neeche test message bhejkar check kar lein.' : 'WhatsApp number successfully connected. Neeche test message bhejkar check kar lein.');
       await reload();
     } catch (err) {
       const details = showConnectionError(err, 'Number registration complete nahi ho paayi.', 'complete_signup');
@@ -725,7 +806,7 @@ export default function ConnectWhatsApp({ onChange }) {
             {visibleErrorDetails?.help && <p className="mt-2 leading-5"><strong>Next step:</strong> {visibleErrorDetails.help}</p>}
             {(visibleErrorDetails?.code || visibleErrorDetails?.stage || visibleErrorDetails?.fbtraceId || wa.lastErrorAt) && <details className="mt-2 text-xs"><summary className="cursor-pointer font-semibold">Technical details (support ke liye)</summary><div className="mt-1 space-y-1 font-mono"><p>Stage: {visibleErrorDetails?.stage || wa.lastErrorStage || 'connection'}</p>{(visibleErrorDetails?.code || wa.lastErrorCode) && <p>Code: {visibleErrorDetails?.code || wa.lastErrorCode}</p>}{visibleErrorDetails?.fbtraceId && <p>Meta trace: {visibleErrorDetails.fbtraceId}</p>}{wa.lastErrorAt && <p>Last recorded: {new Date(wa.lastErrorAt).toLocaleString()}</p>}</div></details>}
           </div><button type="button" className="text-red-500 hover:text-red-700" onClick={() => { clearConnectionError(); if (wa.status === 'error') setWa((prev) => ({ ...prev, lastError: null, lastErrorCode: null, lastErrorStage: null, lastErrorAt: null })); }} aria-label="Dismiss error"><XCircle size={17} /></button></div>
-          <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className="btn-secondary !py-1.5 text-xs" onClick={async () => { clearConnectionError(); await reload().catch((err) => showConnectionError(err, 'Status refresh nahi ho paaya.', 'load_status')); }}>Refresh status</button>{!connected && canManage && canUseEmbedded && <button type="button" className="btn-primary !py-1.5 text-xs !bg-[#1877F2]" onClick={startEmbedded} disabled={busy}>Try Facebook connection again</button>}</div>
+          <div className="mt-3 flex flex-wrap items-center gap-2"><button type="button" className="btn-secondary !py-1.5 text-xs" onClick={async () => { clearConnectionError(); await reload().catch((err) => showConnectionError(err, 'Status refresh nahi ho paaya.', 'load_status')); }}>Refresh status</button>{!connected && canManage && canUseEmbedded && <button type="button" className="btn-primary !py-1.5 text-xs !bg-[#1877F2]" onClick={() => startEmbedded('new')} disabled={busy}>Try Facebook connection again</button>}</div>
         </div>
       )}
 
@@ -737,11 +818,11 @@ export default function ConnectWhatsApp({ onChange }) {
         <div className="mt-5 flex flex-wrap items-center justify-between gap-4 rounded-xl bg-ink-50 p-4 dark:bg-ink-800/60">
           <div>
             <p className="font-display text-xl font-bold text-ink-900 dark:text-white">{wa.displayPhoneNumber || `Phone Number ID ${wa.phoneNumberId}`}</p>
-            <p className="text-sm text-ink-500">{wa.verifiedName || 'Business name pending'}{wa.qualityRating ? ` · Quality ${wa.qualityRating}` : ''} · {wa.connectedVia === 'embedded_signup' ? 'Facebook se connected' : 'Manual setup'}</p>
+            <p className="text-sm text-ink-500">{wa.verifiedName || 'Business name pending'}{wa.qualityRating ? ` · Quality ${wa.qualityRating}` : ''} · {wa.isCoexistence ? 'Coexistence (Business app + Visitsly)' : wa.connectedVia === 'embedded_signup' ? 'Facebook se connected' : 'Manual setup'}</p>
             {wa.connectedAt && <p className="mt-1 text-xs text-ink-400">Connected {new Date(wa.connectedAt).toLocaleString()}</p>}
           </div>
           {canManage && wa.connectedVia !== 'env' && <div className="flex flex-wrap gap-2">
-            {canUseEmbedded && <button onClick={startEmbedded} disabled={busy} className="btn-secondary gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}Reconnect with Meta</button>}
+            {canUseEmbedded && <button onClick={() => startEmbedded(wa.isCoexistence ? 'coexistence' : 'new')} disabled={busy} className="btn-secondary gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}Reconnect with Meta</button>}
             <button onClick={disconnect} disabled={busy} className="btn-secondary gap-2 text-red-600"><Unplug size={15} />Remove connection</button>
           </div>}
         </div>
@@ -750,11 +831,38 @@ export default function ConnectWhatsApp({ onChange }) {
       ) : (
         <div className="mt-5 space-y-4">
           {canUseEmbedded ? (
-            <div className="rounded-xl border border-ink-100 p-4 dark:border-ink-800">
-              <p className="font-semibold text-ink-900 dark:text-white">Facebook se number connect karein</p>
-                            <button onClick={startEmbedded} disabled={busy} className="btn-primary mt-4 gap-2 !bg-[#1877F2] hover:!bg-[#166FE5]">
-                {busy ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}Connect with Facebook
-              </button>
+            <div>
+              <p className="text-sm font-semibold text-ink-900 dark:text-white">Aapka number kaisa hai? Apna tareeka chunein</p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="flex flex-col rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 dark:border-emerald-900/60 dark:bg-emerald-900/10">
+                  <p className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><Smartphone size={17} className="text-emerald-600" /> Maujooda WhatsApp Business app number</p>
+                  <span className="mt-1 w-fit rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">Coexistence · Recommended</span>
+                  <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs leading-5 text-ink-600 dark:text-ink-300">
+                    <li>Number phone ke WhatsApp Business app mein chalta rahega, aap wahan se bhi chat kar sakte hain.</li>
+                    <li>Visitsly AI usi number se customers ko reply karega.</li>
+                    <li>Chats dono taraf sync hoti hain, purani chats aur contacts bhi aa jate hain.</li>
+                    <li>Phone par WhatsApp Business app (version 2.24.17 ya naya) chahiye. Normal personal WhatsApp number nahi chalega.</li>
+                    <li>Facebook popup mein QR scan karna padega.</li>
+                  </ul>
+                  <button onClick={() => startEmbedded('coexistence')} disabled={busy} className="btn-primary mt-4 gap-2 !bg-[#1877F2] hover:!bg-[#166FE5]">
+                    {busy ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}Business app number connect karein
+                  </button>
+                </div>
+                <div className="flex flex-col rounded-xl border border-ink-100 p-4 dark:border-ink-800">
+                  <p className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><KeyRound size={17} className="text-brand-600" /> Naya number (sirf Visitsly ke liye)</p>
+                  <span className="mt-1 w-fit rounded-full bg-ink-100 px-2 py-0.5 text-[10px] font-semibold text-ink-600">Cloud API</span>
+                  <ul className="mt-3 flex-1 list-disc space-y-1 pl-4 text-xs leading-5 text-ink-600 dark:text-ink-300">
+                    <li>Ek fresh number jo sirf Visitsly (Cloud API) se chalega.</li>
+                    <li>Us number se WhatsApp Business phone app mein chat nahi hoti, sab kuch Visitsly inbox mein.</li>
+                    <li>6-digit PIN khud tay karna hota hai.</li>
+                    <li>Jo number pehle se WhatsApp ya Business app par chal raha hai, use yahan se lagane par wo app se hat jata hai.</li>
+                  </ul>
+                  <button onClick={() => startEmbedded('new')} disabled={busy} className="btn-primary mt-4 gap-2 !bg-[#1877F2] hover:!bg-[#166FE5]">
+                    {busy ? <Loader2 size={16} className="animate-spin" /> : <Link2 size={16} />}Naya number connect karein
+                  </button>
+                </div>
+              </div>
+              <p className="mt-2 text-xs text-ink-500">Dono tareeke Facebook (Meta) ke secure popup se hote hain. Ek baar connect hone ke baad test message bhejkar check kar sakte hain.</p>
             </div>
           ) : (
             <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
@@ -780,7 +888,10 @@ export default function ConnectWhatsApp({ onChange }) {
         </div>
       )}
 
-      <SetupChecklist canManage={canManage} connected={connected} wa={wa} onConnect={startEmbedded} canUseEmbedded={canUseEmbedded} connectBusy={busy} />
+      {connected && wa.isCoexistence && <CoexistenceStatus wa={wa} canManage={canManage} onUpdated={(next) => { setWa(next); void onChange?.(); }} />}
+      {connected && canManage && <TestMessageCard wa={wa} onSent={(next) => next && setWa(next)} />}
+
+      <SetupChecklist canManage={canManage} connected={connected} wa={wa} onConnect={() => startEmbedded('new')} canUseEmbedded={canUseEmbedded} connectBusy={busy} />
       {connected && <ExtraNumbers wa={wa} canManage={canManage} onUpdated={(next) => { setWa(next); void onChange?.(); }} />}
 
       {pinPromptOpen && pendingAttempt && (
@@ -795,14 +906,14 @@ export default function ConnectWhatsApp({ onChange }) {
               <span className="mt-1 block text-xs text-ink-400">Sirf wahi number select karein jise aap is workspace mein use karna chahte hain.</span>
             </label>}
             {pendingAttempt.phoneNumbers.length === 1 && <div className="mt-4 rounded-lg bg-ink-50 p-3 dark:bg-ink-800/60"><p className="text-xs text-ink-500">Selected number</p><p className="mt-1 font-semibold text-ink-900 dark:text-white">{pendingAttempt.phoneNumbers[0].displayPhoneNumber || `Phone ID ${pendingAttempt.phoneNumbers[0].phoneNumberId}`}</p>{pendingAttempt.phoneNumbers[0].verifiedName && <p className="text-xs text-ink-500">{pendingAttempt.phoneNumbers[0].verifiedName}</p>}</div>}
-            <label className="mt-4 block text-sm font-medium text-ink-800 dark:text-ink-100">6-digit WhatsApp registration PIN
+            {pendingAttempt.isCoexistence ? <p className="mt-4 rounded-lg bg-emerald-50 p-3 text-xs leading-5 text-emerald-900 dark:bg-emerald-900/20 dark:text-emerald-200">Ye number WhatsApp Business app par chalta rahega, isliye PIN ya naya registration ki zaroorat nahi hai. Bas “Verify & connect” dabayein.</p> : (<><label className="mt-4 block text-sm font-medium text-ink-800 dark:text-ink-100">6-digit WhatsApp registration PIN
               <input className="input-field mt-1.5 text-center font-mono text-lg tracking-[0.4em]" type="password" inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="[0-9]{6}" required value={registrationPin} onChange={(event) => setRegistrationPin(event.target.value.replace(/\D/g, '').slice(0, 6))} placeholder="••••••" />
             </label>
-            <p className="mt-2 text-xs leading-5 text-ink-400">Ye PIN aap khud tay karte hain: koi bhi 6 digit chunein aur yaad rakhein (jaise 482913). Naya number hai to ye PIN pehli baar set ho jata hai. Pehle se WhatsApp Business par chalne wala number hai to uska purana two-step PIN daalein. Visitsly PIN save nahi karta. Galat PIN baar-baar na daalein, Meta kuch der ke liye rok deta hai.</p>
+            <p className="mt-2 text-xs leading-5 text-ink-400">Ye PIN aap khud tay karte hain: koi bhi 6 digit chunein aur yaad rakhein (jaise 482913). Naya number hai to ye PIN pehli baar set ho jata hai. Pehle se WhatsApp Business par chalne wala number hai to uska purana two-step PIN daalein. Visitsly PIN save nahi karta. Galat PIN baar-baar na daalein, Meta kuch der ke liye rok deta hai.</p></>)}
             {error && <div role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"><p className="font-semibold">{errorTitle || 'Setup error'}</p><p className="mt-1">{error}</p>{errorHelp && <p className="mt-1 leading-5">Next step: {errorHelp}</p>}{errorCode && <p className="mt-2 font-mono text-xs">Code: {errorCode}{errorStage ? ` · Stage: ${errorStage}` : ''}</p>}</div>}
             <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button type="button" disabled={busy} className="btn-secondary" onClick={() => { setPinPromptOpen(false); setRegistrationPin(''); setConnectStage(''); clearConnectionError(); }}>Do later</button>
-              <button type="submit" disabled={busy || registrationPin.length !== 6 || !phoneChoice} className="btn-primary gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}Verify & connect</button>
+              <button type="submit" disabled={busy || (!pendingAttempt.isCoexistence && registrationPin.length !== 6) || !phoneChoice} className="btn-primary gap-2">{busy ? <Loader2 size={15} className="animate-spin" /> : <ShieldCheck size={15} />}Verify & connect</button>
             </div>
           </form>
         </div>

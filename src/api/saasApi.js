@@ -44,6 +44,10 @@ export const orgApi = {
     api.post(`/org/team/${id}/set-password`, { password }).then(data),
   whatsappHealth: () => api.get("/org/whatsapp/health").then(data),
   fixWhatsappWebhook: () => api.post("/org/whatsapp/fix-webhook").then(data),
+  sendWhatsappTestMessage: (payload) =>
+    api.post("/org/whatsapp/test-message", payload).then(data),
+  retryCoexistenceSync: () =>
+    api.post("/org/whatsapp/coexistence/sync").then(data),
 };
 
 export const billingApi = {
