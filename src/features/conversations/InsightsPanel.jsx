@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, CalendarCheck, Clock, Zap, BadgeCheck, PhoneCall, RotateCcw, Home } from 'lucide-react';
+import { Sparkles, CalendarCheck, Clock, Zap, BadgeCheck, PhoneCall, RotateCcw, Home, Maximize2, CheckCircle2 } from 'lucide-react';
 import { orgApi, growthApi, voiceApi } from '../../api/saasApi.js';
 import { followUpApi } from '../../api/followUpApi.js';
 import { useAuthStore, useOrgRole } from '../../store/authStore.js';
 import { errText } from '../../lib/saas.jsx';
-import { toast, showDialog } from '../../components/ui/index.jsx';
+import { toast, showDialog, Modal } from '../../components/ui/index.jsx';
 
 export const HOT_SCORE = 60;
 export const LEAD_SCORE = 30;
@@ -28,18 +28,18 @@ export function money(value) {
   return `₹${n.toLocaleString('en-IN')}`;
 }
 
-/** "Aaj", "Kal", "Parso" or "Mon, 18 Nov" — always relative to today's date. */
+/** "Today", "Tomorrow", "In 2 days" or "Mon, 18 Nov" — relative to today. */
 export function friendlyDate(value) {
   if (!value) return '';
   const d = new Date(value);
   if (Number.isNaN(d.getTime())) return '';
   const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const diff = Math.round((day(d) - day(new Date())) / 86400000);
-  if (diff === 0) return 'Aaj';
-  if (diff === 1) return 'Kal';
-  if (diff === 2) return 'Parso';
-  if (diff === -1) return 'Kal (beet gaya)';
-  if (diff < -1) return `${Math.abs(diff)} din pehle`;
+  if (diff === 0) return 'Today';
+  if (diff === 1) return 'Tomorrow';
+  if (diff > 1 && diff <= 7) return `In ${diff} days`;
+  if (diff === -1) return 'Yesterday';
+  if (diff < -1) return `${Math.abs(diff)} days ago`;
   return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' });
 }
 
@@ -65,9 +65,9 @@ function LeadActions({ lead, conversation }) {
     setBusy(key);
     try {
       const res = await fn();
-      toast.success(okText || res?.message || 'Ho gaya');
+      toast.success(okText || res?.message || 'Done');
     } catch (err) {
-      showDialog({ title: 'Ye kaam nahi ho paaya', message: errText(err) });
+      showDialog({ title: 'Could not complete this', message: errText(err) });
     } finally {
       setBusy('');
     }
@@ -76,20 +76,20 @@ function LeadActions({ lead, conversation }) {
   const voiceOn = Boolean(org?.voice?.enabled);
 
   return (
-    <div className="space-y-2.5 rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Zap size={13} /> Actions</p>
+    <div className="space-y-2.5">
+      <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Zap size={13} /> Quick actions</p>
       {isManager && team.length > 0 && (
         <label className="block text-xs text-ink-500">
-          Kis teammate ko dein
-          <select className="input-field mt-1 !py-1.5" value={assigned} onChange={(e) => { const v = e.target.value; setAssigned(v); act('assign', () => growthApi.assign([lead._id], v || null), 'Lead assign ho gayi'); }}>
-            <option value="">— Kisi ko nahi —</option>
+          Assign to
+          <select className="input-field mt-1 !py-1.5" value={assigned} onChange={(e) => { const v = e.target.value; setAssigned(v); act('assign', () => growthApi.assign([lead._id], v || null), 'Lead assigned'); }}>
+            <option value="">— Unassigned —</option>
             {team.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </label>
       )}
       <div className="grid grid-cols-2 gap-2">
         {voiceOn && (
-          <button type="button" className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => act('call', () => voiceApi.call(lead._id), 'AI call lag rahi hai')}>
+          <button type="button" className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => act('call', () => voiceApi.call(lead._id), 'AI call started')}>
             <PhoneCall size={13} /> AI call
           </button>
         )}
@@ -97,14 +97,14 @@ function LeadActions({ lead, conversation }) {
           type="button"
           className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs"
           disabled={!!busy || conversation?.optedOut}
-          title={conversation?.optedOut ? 'Customer ne STOP likha hai' : 'Kal phir se follow-up message jayega'}
+          title={conversation?.optedOut ? 'Customer opted out (STOP)' : 'Send a follow-up tomorrow'}
           onClick={() => {
             const date = new Date(Date.now() + 86400000);
             date.setHours(11, 0, 0, 0);
-            act('fu', () => followUpApi.createForLead(lead._id, { date: date.toISOString() }), 'Follow-up kal 11 baje ke liye set ho gaya');
+            act('fu', () => followUpApi.createForLead(lead._id, { date: date.toISOString() }), 'Follow-up set for tomorrow 11 AM');
           }}
         >
-          <RotateCcw size={13} /> Follow-up kal
+          <RotateCcw size={13} /> Follow-up tomorrow
         </button>
         {isManager && (booked ? (
           <button type="button" className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs text-green-700" disabled={!!busy} onClick={() => act('book', async () => { const r = await growthApi.markBooked(lead._id, { undo: true }); setBooked(false); return r; })}>
@@ -112,9 +112,9 @@ function LeadActions({ lead, conversation }) {
           </button>
         ) : (
           <button type="button" className="btn-secondary gap-1.5 !px-2 !py-1.5 text-xs" disabled={!!busy} onClick={() => {
-            const v = window.prompt('Deal kitne ki hui? (₹) — reports ke liye', '');
+            const v = window.prompt('Deal value (₹) — for reports', '');
             if (v === null) return;
-            act('book', async () => { const r = await growthApi.markBooked(lead._id, { dealValue: Number(String(v).replace(/[^\d]/g, '')) || undefined }); setBooked(true); return r; }, 'Deal booked mark ho gayi 🎉');
+            act('book', async () => { const r = await growthApi.markBooked(lead._id, { dealValue: Number(String(v).replace(/[^\d]/g, '')) || undefined }); setBooked(true); return r; }, 'Marked as booked 🎉');
           }}>
             <BadgeCheck size={13} /> Mark booked
           </button>
@@ -127,7 +127,23 @@ function LeadActions({ lead, conversation }) {
   );
 }
 
+function daysUntil(value) {
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  return Math.round((day(d) - day(new Date())) / 86400000);
+}
+
+function visitStatus(m) {
+  const st = m.confirmation?.status;
+  if (st === 'confirmed') return 'Confirmed';
+  if (st === 'declined') return 'Not coming';
+  if (st === 'pending') return 'Awaiting confirmation';
+  return String(m.status || '').replaceAll('_', ' ');
+}
+
 export default function InsightsPanel({ active, className = '' }) {
+  const [moreOpen, setMoreOpen] = useState(false);
   const conversation = active.conversation;
   const lead = conversation.leadId || {};
   const insights = active.insights || {};
@@ -142,60 +158,76 @@ export default function InsightsPanel({ active, className = '' }) {
   const [summaryLine, ...rest] = String(conversation.aiSummary || '').split('\n');
   const reqFromSummary = rest.find((l) => /^Requirement:/i.test(l))?.replace(/^Requirement:\s*/i, '');
   const scoreTone = score > HOT_SCORE ? 'bg-red-500' : score > LEAD_SCORE ? 'bg-amber-500' : 'bg-ink-300';
+  const scoreText = score > HOT_SCORE ? 'text-red-600' : score > LEAD_SCORE ? 'text-amber-600' : 'text-ink-700 dark:text-ink-200';
   const fu = insights.followUp;
+  const visit = meetings[0];
+  const fuDays = fu ? daysUntil(fu.nextFollowUpDate) : null;
 
   return (
-    <aside className={`flex w-full flex-shrink-0 flex-col gap-3 overflow-y-auto xl:w-80 ${className}`}>
+    <aside className={`flex w-full flex-shrink-0 flex-col gap-3 overflow-y-auto xl:w-72 ${className}`}>
+      {/* Score */}
       <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
         <div className="flex items-center justify-between gap-2">
-          <span className={`rounded-full px-2.5 py-1 text-xs font-bold ${type.className}`}>{type.label} lead</span>
-          <span className="font-display text-2xl font-bold text-ink-900 dark:text-white">{score}<span className="text-xs font-medium text-ink-400">/100</span></span>
+          <p className="text-[11px] font-bold uppercase tracking-wide text-ink-500">Lead score</p>
+          <span className={`rounded-full px-2 py-0.5 text-[11px] font-bold ${type.className}`}>{type.label}</span>
         </div>
+        <p className={`mt-1 font-display text-3xl font-bold tabular-nums ${scoreText}`}>{score}<span className="text-sm font-medium text-ink-400">/100</span></p>
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800"><div className={`h-full rounded-full ${scoreTone}`} style={{ width: `${Math.max(3, score)}%` }} /></div>
-
-        <p className="mt-4 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300"><Sparkles size={13} /> Summary</p>
-        <p className="mt-1 text-sm leading-6 text-ink-700 dark:text-ink-200">{summaryLine || 'Customer ke reply aane par AI yahan 1 line ka summary likhega.'}</p>
-
-        {(requirement || reqFromSummary) && (
-          <div className="mt-3 rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60">
-            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Home size={12} /> Requirement</p>
-            <p className="mt-0.5 text-sm font-medium text-ink-800 dark:text-ink-100">{requirement || reqFromSummary}</p>
-          </div>
-        )}
-        <dl className="mt-3 space-y-1 text-sm">
-          {[['Mobile', lead.phone], ['Email', lead.email], ['Language', conversation.language]].filter(([, v]) => v).map(([k, v]) => (
-            <div key={k} className="flex justify-between gap-3"><dt className="text-ink-500">{k}</dt><dd className="truncate text-right font-medium text-ink-800 dark:text-ink-100">{v}</dd></div>
-          ))}
-        </dl>
-        {insights.latestScore?.reason && <p className="mt-2 text-xs leading-5 text-ink-500 dark:text-ink-400">Score kyun: {insights.latestScore.reason}</p>}
       </div>
 
-      <LeadActions lead={lead} conversation={conversation} />
-
+      {/* Chat summary */}
       <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Clock size={13} /> Agla follow-up</p>
-        {fu ? (
-          <>
-            <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">
-              {friendlyDate(fu.nextFollowUpDate)}
+        <div className="flex items-center justify-between gap-2">
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300"><Sparkles size={13} /> Chat summary</p>
+          <button type="button" onClick={() => setMoreOpen(true)} title="Full summary & requirement" aria-label="Open full summary" className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-brand-700 dark:hover:bg-ink-800"><Maximize2 size={14} /></button>
+        </div>
+        <p className="mt-1.5 line-clamp-3 text-sm leading-6 text-ink-700 dark:text-ink-200">{summaryLine || 'Summary appears after the customer replies.'}</p>
+        {(requirement || reqFromSummary) && <p className="mt-2 line-clamp-2 text-xs font-medium text-ink-500 dark:text-ink-400"><Home size={11} className="mr-1 inline" />{requirement || reqFromSummary}</p>}
+        <button type="button" onClick={() => setMoreOpen(true)} className="mt-2 text-xs font-semibold text-brand-700 hover:underline dark:text-brand-300">View details</button>
+      </div>
+
+      {/* Visit booked or next follow-up */}
+      {visit ? (
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-900 dark:bg-teal-900/20">
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-teal-700 dark:text-teal-300"><CheckCircle2 size={13} /> Site visit booked</p>
+          <p className="mt-1 text-sm font-semibold text-teal-900 dark:text-teal-100">{friendlyDate(`${visit.preferredDate}T${visit.preferredTime || '11:00'}:00`)} · {visit.preferredTime}</p>
+          <p className="text-xs text-teal-800 dark:text-teal-200">{visit.propertyId?.projectName || 'Project not set'} · {visitStatus(visit)}</p>
+        </div>
+      ) : (
+        <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
+          <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Clock size={13} /> Follow-up</p>
+          {fu ? (
+            <p className="mt-1 text-sm font-semibold text-ink-800 dark:text-ink-100">
+              {fuDays <= 0 ? 'Due today' : fuDays === 1 ? 'In 1 day' : `In ${fuDays} days`}
               <span className="ml-1 font-normal text-ink-400">· {new Date(fu.nextFollowUpDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</span>
             </p>
-            <p className="mt-1 line-clamp-3 text-sm leading-5 text-ink-600 dark:text-ink-300">{fu.nextFollowUpMessage}</p>
-          </>
-        ) : (
-          <p className="text-sm text-ink-400">Koi follow-up pending nahi.</p>
-        )}
-      </div>
+          ) : <p className="mt-1 text-sm text-ink-400">No follow-up scheduled</p>}
+        </div>
+      )}
 
-      <div className="rounded-xl border border-ink-100 bg-white p-4 dark:border-ink-800 dark:bg-ink-900">
-        <p className="mb-2 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><CalendarCheck size={13} /> Site visit</p>
-        {meetings.length ? meetings.map((m) => (
-          <div key={m._id} className="mb-2 rounded-lg bg-teal-50 px-3 py-2 text-sm text-teal-900 last:mb-0 dark:bg-teal-900/20 dark:text-teal-100">
-            <p className="font-semibold">{friendlyDate(`${m.preferredDate}T${m.preferredTime || '11:00'}:00`)} · {m.preferredTime}</p>
-            <p className="text-xs">{m.propertyId?.projectName || 'Project set nahi'} · {m.confirmation?.status === 'confirmed' ? '✅ Confirmed' : m.confirmation?.status === 'declined' ? '❌ Nahi aa rahe' : m.confirmation?.status === 'pending' ? '⏳ Confirmation ka wait' : String(m.status).replaceAll('_', ' ')}</p>
+      <Modal open={moreOpen} onClose={() => setMoreOpen(false)} title={lead.name || lead.phone || 'Lead details'} size="max-w-md">
+        <div className="space-y-4">
+          <div>
+            <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-brand-700 dark:text-brand-300"><Sparkles size={13} /> Summary</p>
+            <p className="mt-1 whitespace-pre-line text-sm leading-6 text-ink-700 dark:text-ink-200">{conversation.aiSummary || 'Summary appears after the customer replies.'}</p>
           </div>
-        )) : <p className="text-sm text-ink-400">Abhi koi visit book nahi hui.</p>}
-      </div>
+          {(requirement || reqFromSummary) && (
+            <div className="rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60">
+              <p className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-ink-500"><Home size={12} /> Requirement</p>
+              <p className="mt-0.5 text-sm font-medium text-ink-800 dark:text-ink-100">{requirement || reqFromSummary}</p>
+            </div>
+          )}
+          <dl className="space-y-1 text-sm">
+            {[['Score', `${score}/100`], ['Mobile', lead.phone], ['Email', lead.email], ['Language', conversation.language]].filter(([, v]) => v).map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3"><dt className="text-ink-500">{k}</dt><dd className="truncate text-right font-medium text-ink-800 dark:text-ink-100">{v}</dd></div>
+            ))}
+          </dl>
+          {insights.latestScore?.reason && <p className="text-xs leading-5 text-ink-500 dark:text-ink-400">Why this score: {insights.latestScore.reason}</p>}
+          {fu?.nextFollowUpMessage && <div><p className="text-[11px] font-bold uppercase tracking-wide text-ink-500">Next follow-up message</p><p className="mt-1 text-sm text-ink-600 dark:text-ink-300">{fu.nextFollowUpMessage}</p></div>}
+          {meetings.length > 1 && <div><p className="text-[11px] font-bold uppercase tracking-wide text-ink-500">All visits</p>{meetings.map((m) => <p key={m._id} className="mt-1 text-sm text-ink-700 dark:text-ink-200">{friendlyDate(`${m.preferredDate}T${m.preferredTime || '11:00'}:00`)} · {m.preferredTime} · {visitStatus(m)}</p>)}</div>}
+          <div className="border-t border-ink-100 pt-3 dark:border-ink-800"><LeadActions lead={lead} conversation={conversation} /></div>
+        </div>
+      </Modal>
     </aside>
   );
 }

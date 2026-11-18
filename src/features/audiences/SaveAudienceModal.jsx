@@ -14,7 +14,7 @@ export default function SaveAudienceModal({ leadIds, source = 'selection', defau
 
   const save = async (event) => {
     event.preventDefault();
-    if (!name.trim()) { setError('Audience ka naam likhein.'); return; }
+    if (!name.trim()) { setError('Enter an audience name.'); return; }
     setSaving(true); setError('');
     try {
       const response = await audienceApi.create({
@@ -25,14 +25,14 @@ export default function SaveAudienceModal({ leadIds, source = 'selection', defau
       });
       onSaved?.(response.data.audience);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Audience save nahi hua.');
+      setError(err?.response?.data?.message || 'Could not save audience.');
     } finally { setSaving(false); }
   };
 
   return <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4" onMouseDown={(e) => { if (e.target === e.currentTarget && !saving) onClose?.(); }}>
     <form onSubmit={save} className="w-full max-w-md rounded-2xl bg-white p-5 shadow-2xl dark:bg-ink-900">
       <div className="mb-4 flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300"><Users size={19} /></span><div><h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">Save as audience</h2><p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{leadIds.length.toLocaleString('en-IN')} contacts · baad mein WhatsApp ya Email bulk mein seedha chunein.</p></div></div>
+        <div className="flex items-start gap-3"><span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300"><Users size={19} /></span><div><h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">Save as audience</h2><p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{leadIds.length.toLocaleString('en-IN')} contacts · reuse in WhatsApp or email campaigns.</p></div></div>
         <button type="button" onClick={onClose} disabled={saving} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Close"><X size={18} /></button>
       </div>
       {error && <div role="alert" className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-900/30 dark:text-red-300">{error}</div>}

@@ -7,11 +7,11 @@ import { outreachApi } from '../api/outreachApi.js';
 export const SUMMARY_KEY = ['outreach', 'summary'];
 
 /**
- * Backend worker ke realtime events sunta hai:
+ * Listens to the backend worker's realtime events:
  *   outreach:job       -> ek lead ka status badla (processing -> sent/failed)
  *   outreach:progress  -> campaign ke channel-wise counts
  *   outreach:campaign  -> campaign pause/resume/cancel/complete/launch
- * Handlers ref mein rakhe hain, isliye har render par re-subscribe nahi hota.
+ * Handlers live in a ref, so we don't re-subscribe on every render.
  */
 export function useOutreachEvents({ onJob, onProgress, onCampaign, onReconnect }) {
   const handlers = useRef({});
@@ -37,7 +37,7 @@ export function useOutreachEvents({ onJob, onProgress, onCampaign, onReconnect }
   }, []);
 }
 
-/** Plain query (page ke andar). Live refresh DashboardLayout wala hook karta hai. */
+/** Plain query (inside a page). Live refresh is done by the DashboardLayout hook. */
 export function useOutreachSummaryQuery() {
   // SaaS: agents have no bulk sending.
   const role = useOrgRole();
@@ -50,15 +50,15 @@ export function useOutreachSummaryQuery() {
 }
 
 /**
- * Sidebar ke liye: summary + socket events par (throttled) refetch.
- * Sirf DashboardLayout mein ek baar use karo.
+ * For the sidebar: summary + throttled refetch on socket events.
+ * Use once, in DashboardLayout only.
  */
 export function useOutreachSummaryLive() {
   const qc = useQueryClient();
   const timer = useRef(null);
 
   const refresh = useCallback(() => {
-    if (timer.current) return; // 1.5s mein ek hi refetch, har message par nahi
+    if (timer.current) return; // at most one refetch per 1.5s, not one per message
     timer.current = setTimeout(() => {
       timer.current = null;
       qc.invalidateQueries({ queryKey: SUMMARY_KEY });

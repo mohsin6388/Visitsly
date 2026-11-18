@@ -14,8 +14,8 @@ export const fmtDateTime = (d) =>
 const base = 'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium whitespace-nowrap';
 
 /**
- * Ek lead/job ka status. 'processing' par spinner chalta hai — worker ek
- * time par ek hi bhejta hai, isliye ek channel mein ek hi spinner dikhega.
+ * Status of one contact in a campaign. 'processing' shows a spinner — the worker
+ * sends one at a time, so only one spinner shows per channel.
  */
 export default function StatusChip({ job }) {
   if (job.status === 'processing') {
@@ -63,7 +63,7 @@ export default function StatusChip({ job }) {
   }
   return (
     <span className={`${base} bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300`}>
-      <Hourglass size={13} /> In queue
+      <Hourglass size={13} /> Queued
     </span>
   );
 }

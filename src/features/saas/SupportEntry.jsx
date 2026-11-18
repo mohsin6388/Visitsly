@@ -19,7 +19,7 @@ export default function SupportEntry() {
     const orgName = params.get('org') || '';
     window.history.replaceState(null, '', '/support'); // drop the token from the address bar
     if (!token) {
-      setError('Support link adhoora hai. Admin panel se dobara kholiye.');
+      setError('Support link is incomplete. Open it again from the admin panel.');
       return;
     }
     const store = useAuthStore.getState();
@@ -32,13 +32,13 @@ export default function SupportEntry() {
       })
       .catch(() => {
         store.clearSession();
-        setError('Support link expire ho gaya. Admin panel se naya link banaiye.');
+        setError('Support link expired. Create a new one from the admin panel.');
       });
   }, [navigate]);
 
   return (
     <div className="flex h-screen flex-col items-center justify-center gap-3 p-6 text-center">
-      {error ? <p className="max-w-sm text-sm text-red-600">{error}</p> : <><Loader2 className="animate-spin text-ink-400" /><p className="text-sm text-ink-500">Support session khul raha hai…</p></>}
+      {error ? <p className="max-w-sm text-sm text-red-600">{error}</p> : <><Loader2 className="animate-spin text-ink-400" /><p className="text-sm text-ink-500">Opening support session…</p></>}
     </div>
   );
 }

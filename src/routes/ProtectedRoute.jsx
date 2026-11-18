@@ -2,7 +2,7 @@ import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore.js';
 
 export default function ProtectedRoute({ allowedRoles }) {
-  const { user, isAuthReady } = useAuthStore();
+  const { user, org, support, isAuthReady } = useAuthStore();
   const location = useLocation();
 
   if (!isAuthReady) {
@@ -16,6 +16,13 @@ export default function ProtectedRoute({ allowedRoles }) {
   if (!user) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
+
+  // Onboarding wizard gate: a new workspace (profileDone === false) must finish
+  // it before any other page; once it's done, /onboarding sends you home.
+  const onOnboarding = location.pathname === '/onboarding';
+  const mustOnboard = !support && Boolean(org) && org.profileDone === false;
+  if (mustOnboard && !onOnboarding) return <Navigate to="/onboarding" replace />;
+  if (onOnboarding && !mustOnboard) return <Navigate to="/" replace />;
 
   if (allowedRoles && !allowedRoles.includes(user.role)) {
     return <Navigate to="/dashboard" replace />;

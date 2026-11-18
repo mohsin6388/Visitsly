@@ -1,7 +1,7 @@
 import api from './axios.js';
 
 export const emailApi = {
-  // Client ka apna official email
+  // The client's own official email
   account: () => api.get('/email/account').then((r) => r.data),
   saveAccount: (payload) => api.put('/email/account', payload).then((r) => r.data),
   testAccount: (to) => api.post('/email/account/test', { to }).then((r) => r.data),
@@ -13,6 +13,6 @@ export const emailApi = {
   updateTemplate: (id, payload) => api.put(`/email/templates/${id}`, payload).then((r) => r.data),
   deleteTemplate: (id) => api.delete(`/email/templates/${id}`).then((r) => r.data),
 
-  // Delivery details (sent / failed / din ke hisaab se)
+  // Delivery details (sent / failed / per day)
   details: (params) => api.get('/email/details', { params }).then((r) => r.data),
 };

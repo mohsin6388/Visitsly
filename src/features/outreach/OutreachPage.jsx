@@ -1,10 +1,10 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import {
   useQuery,
   useQueryClient,
   keepPreviousData,
 } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   MessageCircle,
   Mail,
@@ -20,6 +20,7 @@ import {
   Rocket,
   AlertTriangle,
   RefreshCw,
+  Info,
 } from "lucide-react";
 import { outreachApi, campaignApi } from "../../api/outreachApi.js";
 import {
@@ -32,9 +33,13 @@ import CampaignCard from "./CampaignCard.jsx";
 import CampaignLauncher from "./CampaignLauncher.jsx";
 import {
   Skeleton,
+  SkeletonCards,
+  ErrorInfo,
   EmptyState,
   toast,
   showDialog,
+  showSendError,
+  confirmDialog,
 } from "../../components/ui/index.jsx";
 import { errText } from "../../lib/saas.jsx";
 
@@ -43,35 +48,71 @@ const CAMPAIGNS_KEY = ["outreach", "campaigns"];
 const CHANNEL_META = {
   whatsapp: {
     title: "WhatsApp Campaigns",
-    subtitle: "Approved template se bulk message — har contact ka live status.",
+    subtitle: "Bulk messages with approved templates.",
     icon: MessageCircle,
     contact: (j) => j.phone,
   },
   email: {
     title: "Email Campaigns",
-    subtitle: "Bulk email — har contact ka live delivery status.",
+    subtitle: "Bulk emails with live delivery status.",
     icon: Mail,
     contact: (j) => j.email || "—",
   },
 };
 
-const CAMPAIGN_TABS = [
-  { value: "", label: "Sab" },
-  { value: "running", label: "Chal rahe" },
+// Most-used filters stay as buttons; the rest live in a dropdown.
+const CAMPAIGN_MAIN = [
+  { value: "", label: "All" },
+  { value: "running", label: "Running" },
   { value: "scheduled", label: "Scheduled" },
+  { value: "completed", label: "Completed" },
+];
+const CAMPAIGN_MORE = [
   { value: "paused", label: "Paused" },
-  { value: "completed", label: "Poore" },
   { value: "cancelled", label: "Cancelled" },
 ];
 
-const JOB_FILTERS = [
-  { value: "", label: "Sab" },
-  { value: "sent", label: "Gaye" },
-  { value: "processing", label: "Ja raha hai" },
-  { value: "pending", label: "Line mein" },
-  { value: "scheduled", label: "Scheduled" },
-  { value: "failed", label: "Fail" },
+const JOB_MAIN = [
+  { value: "", label: "All" },
+  { value: "sent", label: "Sent" },
+  { value: "failed", label: "Failed" },
 ];
+const JOB_MORE = [
+  { value: "processing", label: "Sending now" },
+  { value: "pending", label: "Queued" },
+  { value: "scheduled", label: "Scheduled" },
+];
+
+/** Buttons for the common filters + a dropdown for the rarely used ones. */
+function FilterBar({ value, onChange, main, more, moreLabel = "More filters", label }) {
+  const inMore = more.some((item) => item.value === value);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={label}>
+      {main.map((item) => (
+        <button
+          key={item.value || "all"}
+          type="button"
+          aria-pressed={value === item.value}
+          onClick={() => onChange(item.value)}
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${value === item.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700"}`}
+        >
+          {item.label}
+        </button>
+      ))}
+      <select
+        aria-label={moreLabel}
+        value={inMore ? value : ""}
+        onChange={(e) => onChange(e.target.value || (inMore ? "" : value))}
+        className={`rounded-full border px-3 py-1 text-xs font-semibold outline-none transition ${inMore ? "border-brand-600 bg-brand-600 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-300"}`}
+      >
+        <option value="" className="text-ink-900">{inMore ? "Clear filter" : moreLabel}</option>
+        {more.map((item) => (
+          <option key={item.value} value={item.value} className="text-ink-900">{item.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
 
 function StatCard({ icon: Icon, label, value, tone, hint, loading }) {
   return (
@@ -114,6 +155,7 @@ export default function OutreachPage({ channel }) {
   const [page, setPage] = useState(1);
   const [nowSending, setNowSending] = useState(null);
   const [busy, setBusy] = useState(false);
+  const contactsRef = useRef(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const initialTemplate = searchParams.get("template") || "";
   const [launchOpen, setLaunchOpen] = useState(
@@ -263,9 +305,23 @@ export default function OutreachPage({ channel }) {
   const handleAction = async (action, campaign, ch) => {
     if (
       action === "cancel" &&
-      !window.confirm(
-        `"${campaign.name}" cancel karein? Jo messages abhi nahi gaye, woh nahi jayenge.`,
-      )
+      !(await confirmDialog({
+        title: `Cancel "${campaign.name}"?`,
+        message: "Unsent messages will not go out. Already sent messages are not affected.",
+        confirmLabel: "Cancel campaign",
+        cancelLabel: "Keep running",
+        danger: true,
+      }))
+    )
+      return;
+    if (
+      action === "delete" &&
+      !(await confirmDialog({
+        title: `Delete "${campaign.name}"?`,
+        message: "The campaign and its send history are removed. Your contacts and their chats stay.",
+        confirmLabel: "Delete campaign",
+        danger: true,
+      }))
     )
       return;
     setBusy(true);
@@ -276,10 +332,14 @@ export default function OutreachPage({ channel }) {
       if (action === "resume") res = await campaignApi.resume(id);
       if (action === "cancel") res = await campaignApi.cancel(id);
       if (action === "retry") res = await campaignApi.retryFailed(id, ch);
-      toast.success(res?.message || "Ho gaya");
+      if (action === "delete") {
+        res = await campaignApi.remove(id);
+        if (campaignId === String(id)) setCampaignId("");
+      }
+      toast.success(res?.message || "Done");
       refreshAll();
     } catch (err) {
-      showDialog({ title: "Ye kaam nahi hua", message: errText(err) });
+      showDialog({ title: "Action failed", message: errText(err) });
     } finally {
       setBusy(false);
     }
@@ -315,7 +375,7 @@ export default function OutreachPage({ channel }) {
           onClick={() => setLaunchOpen(true)}
           className="btn-primary flex items-center gap-2"
         >
-          <Send size={16} /> Naya campaign
+          <Send size={16} /> New campaign
         </button>
       </div>
 
@@ -327,7 +387,7 @@ export default function OutreachPage({ channel }) {
           <>
             <Loader2 size={18} className="animate-spin" />
             <span>
-              Abhi bhej rahe hain: <b>{nowSending.name}</b>{" "}
+              Sending now: <b>{nowSending.name}</b>{" "}
               {nowSending.contact && (
                 <span className="opacity-70">({nowSending.contact})</span>
               )}
@@ -335,17 +395,16 @@ export default function OutreachPage({ channel }) {
           </>
         ) : s.processing > 0 ? (
           <>
-            <Loader2 size={18} className="animate-spin" /> Messages ja rahe
-            hain…
+            <Loader2 size={18} className="animate-spin" /> Sending messages…
           </>
         ) : queued > 0 && summaryAll?.[channel]?.nextRunAt ? (
           <>
-            <Clock size={18} /> Agla batch:{" "}
+            <Clock size={18} /> Next batch:{" "}
             <b>{fmtDateTime(summaryAll[channel].nextRunAt)}</b>
           </>
         ) : (
           <>
-            <CheckCircle2 size={18} /> Abhi kuch nahi ja raha
+            <CheckCircle2 size={18} /> Nothing sending right now
           </>
         )}
       </div>
@@ -356,47 +415,36 @@ export default function OutreachPage({ channel }) {
           label="Total"
           value={s.total}
           tone="bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300"
-          hint={`${pct}% poora`}
+          hint={`${pct}% done`}
           loading={summaryLoading}
         />
         <StatCard
           icon={CheckCircle2}
-          label="Gaye (sent)"
+          label="Sent"
           value={s.sent}
           tone="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
           loading={summaryLoading}
         />
         <StatCard
           icon={Clock}
-          label="Baaki"
+          label="Pending"
           value={queued}
           tone="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
           hint={
             s.scheduled
-              ? `${s.scheduled} aage ki date par${todayDue > 0 ? `, ${todayDue} abhi line mein` : ""}`
+              ? `${s.scheduled} scheduled${todayDue > 0 ? `, ${todayDue} queued` : ""}`
               : undefined
           }
           loading={summaryLoading}
         />
         <StatCard
           icon={XCircle}
-          label="Fail"
+          label="Failed"
           value={s.failed}
           tone="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
           loading={summaryLoading}
         />
       </div>
-      <div className="mt-3 flex h-2 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
-        <div
-          className="bg-green-500 transition-all duration-500"
-          style={{ width: `${s.total ? (s.sent / s.total) * 100 : 0}%` }}
-        />
-        <div
-          className="bg-red-500 transition-all duration-500"
-          style={{ width: `${s.total ? (s.failed / s.total) * 100 : 0}%` }}
-        />
-      </div>
-
       {/* Campaigns */}
       <section className="mt-8">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -439,22 +487,15 @@ export default function OutreachPage({ channel }) {
             </button>
           </div>
         </div>
-        <div className="mb-3 flex flex-wrap gap-1.5" role="tablist">
-          {CAMPAIGN_TABS.map((t) => (
-            <button
-              key={t.value}
-              type="button"
-              role="tab"
-              aria-selected={campaignTab === t.value}
-              onClick={() => {
-                setCampaignTab(t.value);
-                setCampaignId("");
-              }}
-              className={`rounded-full px-3 py-1 text-xs font-semibold transition ${campaignTab === t.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300"}`}
-            >
-              {t.label}
-            </button>
-          ))}
+        <div className="mb-3">
+          <FilterBar
+            label="Campaign filter"
+            value={campaignTab}
+            onChange={(v) => { setCampaignTab(v); setCampaignId(""); }}
+            main={CAMPAIGN_MAIN}
+            more={CAMPAIGN_MORE}
+            moreLabel="More"
+          />
         </div>
 
         {campaignsError ? (
@@ -467,14 +508,12 @@ export default function OutreachPage({ channel }) {
               className="btn-secondary !py-1.5 text-xs"
               onClick={() => refetchCampaigns()}
             >
-              Dobara try karein
+              Retry
             </button>
           </div>
         ) : campaignsLoading ? (
-          <div className="grid gap-3 lg:grid-cols-2">
-            {[1, 2, 3, 4].map((i) => (
-              <Skeleton key={i} className="h-36 !rounded-xl" />
-            ))}
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <SkeletonCards count={6} className="h-32 !rounded-xl" />
           </div>
         ) : !campaigns.length ? (
           <div className="card">
@@ -482,8 +521,8 @@ export default function OutreachPage({ channel }) {
               icon={Rocket}
               title={
                 campaignTab || search
-                  ? "Is filter mein koi campaign nahi"
-                  : "Abhi koi campaign nahi"
+                  ? "No campaigns match"
+                  : "No campaigns yet"
               }
               action={
                 !campaignTab &&
@@ -493,19 +532,19 @@ export default function OutreachPage({ channel }) {
                     className="btn-primary"
                     onClick={() => setLaunchOpen(true)}
                   >
-                    Pehla campaign banayein
+                    Create first campaign
                   </button>
                 )
               }
             >
               {campaignTab || search
-                ? "Doosra filter chunein."
-                : "Upload Data se contacts daaliye, phir yahan campaign banaiye — chahein to date/time par schedule bhi kar sakte hain."}
+                ? "Try another filter or select \"All\"."
+                : "Add contacts in Upload Data, then create a campaign here."}
             </EmptyState>
           </div>
         ) : (
           <>
-            <div className="grid gap-3 lg:grid-cols-2">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {campaigns.map((c) => (
                 <CampaignCard
                   key={c._id}
@@ -514,9 +553,11 @@ export default function OutreachPage({ channel }) {
                   selected={campaignId === c._id}
                   busy={busy}
                   onSelect={() => {
-                    setCampaignId((cur) => (cur === c._id ? "" : c._id));
+                    const opening = campaignId !== c._id;
+                    setCampaignId(opening ? c._id : "");
                     setPage(1);
                     setFilter("");
+                    if (opening) requestAnimationFrame(() => contactsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
                   }}
                   onAction={handleAction}
                 />
@@ -533,7 +574,7 @@ export default function OutreachPage({ channel }) {
                   {campaignsFetching ? (
                     <Loader2 size={15} className="animate-spin" />
                   ) : (
-                    "Aur campaigns dikhayein"
+                    "Load more"
                   )}
                 </button>
               </div>
@@ -543,39 +584,32 @@ export default function OutreachPage({ channel }) {
       </section>
 
       {/* Contact-wise list */}
-      <section className="mt-8">
+      <section ref={contactsRef} className="mt-8 scroll-mt-4">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <h2 className="font-display text-lg font-semibold text-ink-900 dark:text-white">
             {selectedCampaign ? (
               <>
-                “{selectedCampaign.name}” ke contacts{" "}
+                Contacts in “{selectedCampaign.name}”{" "}
                 <button
                   type="button"
                   onClick={() => setCampaignId("")}
                   className="ml-2 inline-flex items-center gap-1 rounded-full bg-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-600 dark:bg-ink-800 dark:text-ink-300"
                 >
-                  Sab campaigns <X size={12} />
+                  All campaigns <X size={12} />
                 </button>
               </>
             ) : (
-              "Har contact ka status"
+              "Contact status"
             )}
           </h2>
-          <div className="flex flex-wrap gap-1.5">
-            {JOB_FILTERS.map((f) => (
-              <button
-                key={f.value}
-                type="button"
-                onClick={() => {
-                  setFilter(f.value);
-                  setPage(1);
-                }}
-                className={`rounded-full px-3 py-1 text-xs font-medium transition ${filter === f.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700"}`}
-              >
-                {f.label}
-              </button>
-            ))}
-          </div>
+          <FilterBar
+            label="Contact status filter"
+            value={filter}
+            onChange={(v) => { setFilter(v); setPage(1); }}
+            main={JOB_MAIN}
+            more={JOB_MORE}
+            moreLabel="More"
+          />
         </div>
 
         <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
@@ -586,7 +620,7 @@ export default function OutreachPage({ channel }) {
                 <th className="px-4 py-3">
                   {channel === "email" ? "Email" : "Mobile"}
                 </th>
-                <th className="px-4 py-3">Din</th>
+                <th className="px-4 py-3">Day</th>
                 <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
@@ -620,7 +654,7 @@ export default function OutreachPage({ channel }) {
                     colSpan={4}
                     className="px-4 py-10 text-center text-ink-500 dark:text-ink-400"
                   >
-                    Is filter mein koi contact nahi.
+                    No contacts match this filter.
                   </td>
                 </tr>
               )}
@@ -631,26 +665,28 @@ export default function OutreachPage({ channel }) {
                 >
                   <td className="px-4 py-3 font-medium text-ink-900 dark:text-white">
                     {j.name}
+                    {j.leadDeleted && <span className="ml-2 rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold text-ink-500 dark:bg-ink-800">Removed from contacts</span>}
                   </td>
                   <td className="px-4 py-3 text-ink-600 dark:text-ink-300">
                     {meta.contact(j)}
                   </td>
                   <td className="px-4 py-3 text-ink-500 dark:text-ink-400">
-                    {j.dayNumber ? `Din ${j.dayNumber}` : "—"}
+                    {j.dayNumber ? `Day ${j.dayNumber}` : "—"}
                   </td>
                   <td className="px-4 py-3">
-                    <StatusChip job={j} />
-                    {j.lastError &&
-                      (j.status === "failed" ||
-                        j.status === "paused" ||
-                        j.scheduled) && (
-                        <p
-                          className="mt-1 max-w-xs truncate text-xs text-red-600 dark:text-red-400"
-                          title={j.lastError}
-                        >
-                          {j.lastError}
-                        </p>
-                      )}
+                    {j.lastError && (j.status === "failed" || j.status === "paused" || j.scheduled) ? (
+                      <button
+                        type="button"
+                        onClick={() => showSendError(j.lastErrorRaw || j.lastError, j.errorCode)}
+                        className="inline-flex items-center gap-1.5 rounded-full hover:opacity-80"
+                        title="See why"
+                      >
+                        <StatusChip job={j} />
+                        <Info size={14} className="text-red-500" aria-label="See why it failed" />
+                      </button>
+                    ) : (
+                      <StatusChip job={j} />
+                    )}
                   </td>
                 </tr>
               ))}
@@ -663,7 +699,7 @@ export default function OutreachPage({ channel }) {
             <span>
               Page {pagination.page} / {pagination.totalPages} ·{" "}
               {pagination.total.toLocaleString("en-IN")} contacts{" "}
-              {isFetching && "· update ho raha hai…"}
+              {isFetching && "· updating…"}
             </span>
             <div className="flex gap-2">
               <button

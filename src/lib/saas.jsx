@@ -1,9 +1,37 @@
 import { useState } from "react";
 import { Copy } from "lucide-react";
+import { showDialog } from "../components/ui/index.jsx";
+import { useAuthStore } from "../store/authStore.js";
 
 /** Small helpers shared by the SaaS pages. */
 export const inr = (n) =>
   `₹${Math.round(Number(n) || 0).toLocaleString("en-IN")}`;
+
+/** Money in INR / AED / USD (no decimals unless the amount has them). */
+export function money(n, currency = "INR") {
+  const v = Number(n) || 0;
+  try {
+    return new Intl.NumberFormat(currency === "INR" ? "en-IN" : "en", {
+      style: "currency",
+      currency,
+      maximumFractionDigits: v % 1 ? 2 : 0,
+    }).format(v);
+  } catch {
+    return `${currency} ${v}`;
+  }
+}
+
+/** Upgrade popup anywhere in the app (locked feature on the current plan). */
+export function showUpgrade(message, extra = {}) {
+  const role = useAuthStore.getState().user?.orgRole;
+  const owner = !role || role === "owner" || useAuthStore.getState().support;
+  showDialog({
+    tone: "info",
+    title: extra.title || "Upgrade your plan",
+    message: owner ? message : `${message}\n\nAsk your account owner to upgrade.`,
+    links: owner ? [{ label: "See plans & upgrade", href: "/billing" }] : [],
+  });
+}
 
 export const fmtDate = (d) =>
   d
@@ -35,9 +63,9 @@ export const STATUS_TONE = {
 export const LIMIT_LABEL = {
   users: "Team members",
   contacts: "Contacts",
-  aiConversations: "AI conversations (is mahine)",
-  campaignsPerMonth: "Campaigns (is mahine)",
-  bulkMessages: "Bulk messages (WhatsApp + email)",
+  aiConversations: "AI conversations (this month)",
+  campaignsPerMonth: "Campaigns (this month)",
+  bulkMessages: "Bulk WhatsApp messages",
   aiRepliesPerContact: "AI replies per contact",
   whatsappNumbers: "WhatsApp numbers",
 };
@@ -49,8 +77,8 @@ export const ROLE_LABEL = {
 };
 
 export const ROLE_HELP = {
-  owner: "Sab kuch + billing",
-  manager: "Sab kuch, billing chhod kar",
+  owner: "Everything + billing",
+  manager: "Everything except billing",
   agent: "Leads, chats, site visits, follow-ups",
 };
 
@@ -219,11 +247,11 @@ export function Notice({ msg }) {
   );
 }
 
-export const errText = (err, fallback = "Kuch galat hua") => {
+export const errText = (err, fallback = "Something went wrong") => {
   if (err && !err.response && (err.code === "ECONNABORTED" || /timeout/i.test(err.message || "")))
-    return "Server se jawab aane mein der ho gayi. Internet check karke dobara try karein.";
+    return "The server took too long to respond. Check your internet and try again.";
   if (err && !err.response && err.isAxiosError)
-    return "Internet connection nahi hai ya server tak nahi pahunch paaye. Connection check karke dobara try karein.";
+    return "Could not reach the server. Check your connection and try again.";
   const d = err?.response?.data;
   if (d?.message && d.message !== "Validation failed") return d.message;
   return d?.details?.[0]?.message || d?.message || err?.message || fallback;
@@ -241,7 +269,7 @@ export const SOURCE_LABEL = {
   nobroker: "NoBroker",
   email_lead: "Email",
   channel_partner: "Channel partner",
-  whatsapp_inbound: "WhatsApp (khud aaya)",
+  whatsapp_inbound: "WhatsApp (direct)",
   csv_import: "Sheet upload",
   manual: "Manual",
 };

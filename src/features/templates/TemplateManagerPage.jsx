@@ -6,6 +6,7 @@ import { emailApi } from '../../api/emailApi.js';
 import { uploadApi } from '../../api/uploadApi.js';
 import WhatsAppPreview, { partsFromTemplate } from '../../components/WhatsAppPreview.jsx';
 import { useAuthStore } from '../../store/authStore.js';
+import { confirmDialog, Skeleton } from '../../components/ui/index.jsx';
 
 const EMAIL_CATEGORIES = [
   { value: 'marketing', label: 'Marketing' }, { value: 'follow_up', label: 'Follow-up' },
@@ -60,7 +61,7 @@ export default function TemplateManagerPage({ channel = 'email' }) {
       const response = isWhatsApp ? await whatsappApi.allTemplates() : await emailApi.templates();
       setItems(response.data?.templates || []);
     } catch (err) {
-      setError(err?.response?.data?.message || (isWhatsApp ? 'Meta templates load nahi hue. Access token, WABA ID aur WhatsApp permissions check karein.' : 'Email templates load nahi hue. Backend connection check karein.'));
+      setError(err?.response?.data?.message || (isWhatsApp ? 'Could not load WhatsApp templates. Check your WhatsApp connection.' : 'Could not load email templates.'));
       setItems([]);
     } finally { setLoading(false); }
   }, [isWhatsApp]);
@@ -83,6 +84,9 @@ export default function TemplateManagerPage({ channel = 'email' }) {
   };
   const statusCounts = useMemo(() => items.reduce((acc, item) => { acc[statusOf(item)] += 1; return acc; }, { APPROVED: 0, PENDING: 0, REJECTED: 0 }), [items]);
   const visibleItems = isWhatsApp && statusFilter !== 'ALL' ? items.filter((item) => statusOf(item) === statusFilter) : items;
+  const [selectedKey, setSelectedKey] = useState('');
+  const keyOf = (item) => item.id || item._id || item.name;
+  const selectedItem = visibleItems.find((item) => keyOf(item) === selectedKey) || visibleItems[0] || null;
   const openInBulk = (item) => navigate(isWhatsApp ? `/outreach/whatsapp?template=${encodeURIComponent(`${item.name}::${item.language}`)}` : '/outreach/email');
 
   const openCreate = () => { resetForm(); setError(''); setNotice(''); setFormOpen(true); };
@@ -97,60 +101,60 @@ export default function TemplateManagerPage({ channel = 'email' }) {
     if (!file) return;
     if (!file.type.startsWith('image/')) { setError('Please choose a valid image file.'); return; }
     const sizeLimit = isWhatsApp ? 5 * 1024 * 1024 : 25 * 1024 * 1024;
-    if (file.size > sizeLimit) { setError(isWhatsApp ? 'Meta WhatsApp template sample image 5 MB se chhoti honi chahiye.' : 'Email image 25 MB se chhoti honi chahiye.'); return; }
+    if (file.size > sizeLimit) { setError(isWhatsApp ? 'WhatsApp template images must be under 5 MB.' : 'Email images must be under 25 MB.'); return; }
     setUploading(true); setError(''); setNotice('');
     try {
       const result = await uploadApi.image(file, isWhatsApp ? 'templates/whatsapp' : 'templates/email');
       const url = result.data?.url;
       if (!url) throw new Error('Cloudinary returned no image URL.');
-      setImageUrl(url); setNotice('Image Cloudinary par upload ho gayi. Preview right side mein check karein.');
-    } catch (err) { setError(err?.response?.data?.message || err.message || 'Image upload nahi hui. Cloudinary settings check karein.'); }
+      setImageUrl(url); setNotice('Image uploaded. Check the preview.');
+    } catch (err) { setError(err?.response?.data?.message || err.message || 'Image upload failed.'); }
     finally { setUploading(false); }
   };
 
   const saveEmail = async (event) => {
     event.preventDefault(); setError(''); setNotice('');
-    if (!name.trim() || !subject.trim() || !body.trim()) { setError('Template name, subject aur message tino required hain.'); return; }
+    if (!name.trim() || !subject.trim() || !body.trim()) { setError('Name, subject and message are required.'); return; }
     setSaving(true);
     try {
       const payload = { name: name.trim(), subject: subject.trim(), body: body.trim(), category: emailCategory, imageUrl };
       if (editingId) await emailApi.updateTemplate(editingId, payload); else await emailApi.createTemplate(payload);
-      setNotice(editingId ? 'Email template update ho gaya.' : 'Email template save ho gaya. Ab Bulk Email mein select kar sakte ho.');
+      setNotice(editingId ? 'Template updated.' : 'Template saved. You can now use it in email campaigns.');
       setFormOpen(false); resetForm(); await loadItems();
-    } catch (err) { setError(err?.response?.data?.message || 'Email template save nahi hua.'); }
+    } catch (err) { setError(err?.response?.data?.message || 'Could not save the template.'); }
     finally { setSaving(false); }
   };
 
   const submitWhatsApp = async (event) => {
     event.preventDefault(); setError(''); setNotice('');
-    if (!name.trim() || !body.trim()) { setError('Template name aur message body required hain.'); return; }
+    if (!name.trim() || !body.trim()) { setError('Name and message body are required.'); return; }
     const vars = [...body.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1]));
     const max = vars.length ? Math.max(...vars) : 0;
     const samples = sampleValues.split(',').map((v) => v.trim()).filter(Boolean);
-    if (max && samples.length < max) { setError(`Body mein {{1}} se {{${max}}} variables hain. ${max} sample values comma se separate karke do.`); return; }
+    if (max && samples.length < max) { setError(`The body uses {{1}} to {{${max}}}. Add ${max} comma-separated sample values.`); return; }
     if (imageUrl && !/^https:\/\//i.test(imageUrl)) { setError('Header image must be a public HTTPS URL.'); return; }
     setSaving(true);
     try {
       const response = await whatsappApi.createTemplate({ name: name.trim().toLowerCase(), category: waCategory, language, bodyText: body.trim(), headerText: imageUrl ? '' : headerText.trim(), headerImageUrl: imageUrl, footerText: footerText.trim(), sampleValues: samples });
-      setNotice(response.message || 'Template Meta ko review ke liye submit ho gaya. Approval ke baad refresh karein.');
+      setNotice(response.message || 'Submitted to Meta for review. Refresh after approval.');
       setFormOpen(false); resetForm(); await loadItems();
-    } catch (err) { setError(err?.response?.data?.message || 'Template Meta ko submit nahi ho paya. Name, sample values aur permissions check karein.'); }
+    } catch (err) { setError(err?.response?.data?.message || 'Could not submit to Meta. Check the name and sample values.'); }
     finally { setSaving(false); }
   };
 
   const deleteEmail = async (template) => {
-    if (!window.confirm(`Delete email template "${template.name}"? Existing campaigns ka saved content safe rahega.`)) return;
+    if (!(await confirmDialog({ title: `Delete "${template.name}"?`, message: 'Past campaigns keep their content.', confirmLabel: 'Delete', cancelLabel: 'Cancel', danger: true }))) return;
     setDeletingId(template._id); setError(''); setNotice('');
-    try { await emailApi.deleteTemplate(template._id); setNotice('Email template delete ho gaya.'); await loadItems(); }
-    catch (err) { setError(err?.response?.data?.message || 'Template delete nahi hua.'); }
+    try { await emailApi.deleteTemplate(template._id); setNotice('Template deleted.'); await loadItems(); }
+    catch (err) { setError(err?.response?.data?.message || 'Could not delete the template.'); }
     finally { setDeletingId(''); }
   };
 
   const deleteWhatsApp = async (template) => {
-    if (!window.confirm(`Meta se WhatsApp template "${template.name}" delete karna hai? Ye action undo nahi ho sakta.`)) return;
+    if (!(await confirmDialog({ title: `Delete "${template.name}"?`, message: 'It will also be removed from Meta. This cannot be undone.', confirmLabel: 'Delete', cancelLabel: 'Cancel', danger: true }))) return;
     setDeletingId(template.name); setError(''); setNotice('');
-    try { const result = await whatsappApi.deleteTemplate(template.name); setNotice(result.message || 'WhatsApp template Meta se delete ho gaya.'); await loadItems(); }
-    catch (err) { setError(err?.response?.data?.message || 'Meta template delete nahi hua. Permissions ya template status check karein.'); }
+    try { const result = await whatsappApi.deleteTemplate(template.name); setNotice(result.message || 'Template deleted from Meta.'); await loadItems(); }
+    catch (err) { setError(err?.response?.data?.message || 'Could not delete from Meta.'); }
     finally { setDeletingId(''); }
   };
 
@@ -162,12 +166,11 @@ export default function TemplateManagerPage({ channel = 'email' }) {
 
   return <div className="mx-auto max-w-7xl space-y-5">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div className="flex items-center gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${isWhatsApp ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'}`}><Icon size={22}/></span><div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">{isWhatsApp ? 'WhatsApp Templates' : 'Email Templates'}</h1><p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">{isWhatsApp ? 'Sab templates preview ke saath. Naya template yahin se Meta approval ke liye bhejein.' : 'Email templates ko approval ki zaroorat nahi — save karte hi bulk mein use karein.'}</p></div></div>
+      <div className="flex items-center gap-3"><span className={`flex h-11 w-11 items-center justify-center rounded-xl ${isWhatsApp ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'}`}><Icon size={22}/></span><div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">{isWhatsApp ? 'WhatsApp Templates' : 'Email Templates'}</h1><p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">{isWhatsApp ? 'Create templates and send them for Meta approval.' : 'No approval needed — use right after saving.'}</p></div></div>
       <div className="flex gap-2"><button type="button" onClick={loadItems} disabled={loading} className="btn-secondary inline-flex items-center gap-2"><RefreshCw size={15} className={loading ? 'animate-spin' : ''}/>Refresh</button><button type="button" onClick={openCreate} className="btn-primary inline-flex items-center gap-2"><Plus size={16}/>Create template</button></div>
     </div>
     {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200"><AlertCircle size={17} className="mt-0.5 shrink-0"/><span>{error}</span></div>}
     {notice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/30 dark:text-emerald-200"><CheckCircle2 size={17} className="mt-0.5 shrink-0"/><span>{notice}</span></div>}
-    {isWhatsApp && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-100">Meta reviews each template. Only <b>APPROVED</b> templates can be sent in campaigns. Image-header sample upload also needs <code>META_APP_ID</code> in backend env.</div>}
 
     {formOpen && <section className="card !p-4 sm:!p-5">
       <div className="mb-4 flex items-start justify-between gap-3"><div><h2 className="font-display text-lg font-bold text-ink-900 dark:text-white">{isWhatsApp ? 'Submit WhatsApp template' : editingId ? 'Edit email template' : 'Create email template'}</h2><p className="mt-1 text-xs text-ink-500 dark:text-ink-400">Write on the left; live preview updates on the right.</p></div><button type="button" onClick={() => { setFormOpen(false); resetForm(); }} className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Close template form"><X size={18}/></button></div>
@@ -188,24 +191,45 @@ export default function TemplateManagerPage({ channel = 'email' }) {
           <div className="flex flex-wrap justify-end gap-2 border-t border-ink-100 pt-4 dark:border-ink-800"><button type="button" onClick={() => { setFormOpen(false); resetForm(); }} disabled={saving || uploading} className="btn-secondary">Cancel</button><button type="submit" disabled={saving || uploading} className="btn-primary inline-flex items-center gap-2">{saving ? <Loader2 size={16} className="animate-spin"/> : isWhatsApp ? <Send size={16}/> : <Save size={16}/>} {saving ? 'Saving…' : isWhatsApp ? 'Submit for approval' : editingId ? 'Update template' : 'Save template'}</button></div>
         </form>
         <aside className="self-start rounded-2xl border border-ink-100 bg-slate-50 p-4 dark:border-ink-800 dark:bg-ink-950/50 lg:sticky lg:top-4"><div className="mb-3 flex items-center justify-between"><h3 className="text-sm font-bold text-ink-800 dark:text-white">Live preview</h3><span className="text-[10px] uppercase tracking-wider text-ink-400">{isWhatsApp ? 'WhatsApp' : 'Gmail style'}</span></div>
-          {isWhatsApp ? <WhatsAppPreview headerText={headerText} imageUrl={imageUrl} body={body} footer={footerText} values={sampleValues.split(',').map((v) => v.trim())} caption="Sample values se bhara hua preview — customer ko unka apna naam dikhega." />
+          {isWhatsApp ? <WhatsAppPreview headerText={headerText} imageUrl={imageUrl} body={body} footer={footerText} values={sampleValues.split(',').map((v) => v.trim())} caption="Preview with sample values." />
           : <div className="mx-auto max-w-[430px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-4 py-3"><div className="text-sm font-semibold text-slate-800">{companyLabel}</div><div className="mt-1 text-xs text-slate-500">to me</div><div className="mt-2 text-base font-semibold text-slate-900">{subject || 'Your email subject will appear here'}</div></div><div className="min-h-56 p-4">{imageUrl && <img src={imageUrl} alt="Email header" className="mb-4 max-h-56 w-full rounded-lg object-cover"/>}<p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{previewBody || 'Your email content will appear here.'}</p><div className="mt-5 border-t border-slate-100 pt-3 text-xs text-slate-400">{companyLabel} · Property updates</div></div></div>}
-          <p className="mt-3 text-[11px] leading-5 text-ink-500 dark:text-ink-400">Preview sample hai. Gmail/WhatsApp final appearance device, client, Meta template rules and image processing ke hisaab se thodi vary kar sakti hai.</p>
+          <p className="mt-3 text-[11px] leading-5 text-ink-500 dark:text-ink-400">Final look may vary slightly by device and app.</p>
         </aside>
       </div>
     </section>}
 
     {isWhatsApp && items.length > 0 && <div role="tablist" aria-label="Template status" className="flex flex-wrap gap-2">{[['ALL', 'All', items.length], ['APPROVED', 'Approved', statusCounts.APPROVED], ['PENDING', 'In review', statusCounts.PENDING], ['REJECTED', 'Rejected', statusCounts.REJECTED]].map(([key, label, count]) => <button key={key} type="button" role="tab" aria-selected={statusFilter === key} onClick={() => setStatusFilter(key)} className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusFilter === key ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'}`}>{label} ({count})</button>)}</div>}
 
-    {loading ? <div className="card flex items-center justify-center gap-2 py-14 text-sm text-ink-500"><Loader2 size={18} className="animate-spin"/> Loading templates…</div>
-      : items.length === 0 ? <div className="card flex flex-col items-center justify-center py-14 text-center"><span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-ink-100 text-ink-500 dark:bg-ink-800"><FileText size={22}/></span><h2 className="font-display text-base font-bold text-ink-900 dark:text-white">No templates yet</h2><p className="mt-1 max-w-md text-sm text-ink-500 dark:text-ink-400">{isWhatsApp ? 'Create a template and wait for Meta approval before sending.' : 'Create a reusable email, then select it in Bulk Email.'}</p><button type="button" onClick={openCreate} className="btn-primary mt-4 inline-flex items-center gap-2"><Plus size={15}/> Create first template</button></div>
-      : <div className="grid gap-3 lg:grid-cols-2">{visibleItems.map((item) => <article key={item.id || item._id} className="card !p-4"><div className="flex items-start justify-between gap-3"><div className="flex min-w-0 items-start gap-3"><span className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${isWhatsApp ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'}`}><Icon size={17}/></span><div className="min-w-0"><h3 className="break-words font-semibold text-ink-900 dark:text-white">{item.name}</h3><p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{isWhatsApp ? `${item.category || 'Template'} · ${item.language || 'Language not set'}` : `${EMAIL_CATEGORIES.find((c) => c.value === item.category)?.label || 'General'} · Updated ${new Date(item.updatedAt || item.createdAt).toLocaleDateString('en-IN')}`}</p></div></div>{isWhatsApp ? <StatusBadge status={item.status}/> : <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[10px] font-bold uppercase text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">Saved</span>}</div>
-        {!isWhatsApp && item.imageUrl && <img src={item.imageUrl} alt={`${item.name} image`} className="mt-3 max-h-52 w-full rounded-xl border border-ink-100 object-contain dark:border-ink-800"/>}
-        {isWhatsApp ? <WhatsAppPreview className="mt-3" {...partsFromTemplate(item)} values={['Ayush', 'Kanpur', 'Sunday 11 am']} /> : <div className="mt-3 rounded-lg bg-ink-50 p-3 dark:bg-ink-800/70">{!isWhatsApp && <p className="mb-1 text-xs font-semibold text-ink-700 dark:text-ink-100">Subject: {item.subject}</p>}<p className="whitespace-pre-wrap break-words text-sm leading-6 text-ink-600 dark:text-ink-300">{isWhatsApp ? (item.bodyText || (item.components || []).find((c) => String(c.type).toUpperCase() === 'BODY')?.text || 'Template content is available from Meta.') : item.body}</p></div>}
-        {isWhatsApp && statusOf(item) === 'REJECTED' && <p className="mt-2 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">Meta ka reason: {String(item.rejectedReason || 'Meta ne reason nahi bataya — content Meta policy ke hisaab se badalkar naya template bhejein.').replaceAll('_', ' ').toLowerCase()}</p>}
-        {isWhatsApp && statusOf(item) === 'PENDING' && <p className="mt-2 text-xs text-amber-700 dark:text-amber-300">Meta review chal raha hai. Approve hote hi bulk mein dikhega.</p>}
-        <div className="mt-3 flex flex-wrap justify-end gap-2">{isWhatsApp ? <><button type="button" onClick={() => deleteWhatsApp(item)} disabled={deletingId === item.name} className="btn-secondary !px-3 !py-2 text-xs text-red-600 dark:text-red-300">{deletingId === item.name ? <Loader2 size={13} className="animate-spin"/> : <Trash2 size={13}/>} Delete from Meta</button>{statusOf(item) === 'APPROVED' && <button type="button" onClick={() => openInBulk(item)} className="btn-primary !px-3 !py-2 text-xs inline-flex items-center gap-1.5">Use in bulk <ArrowRight size={13}/></button>}</> : <><button type="button" onClick={() => openEdit(item)} className="btn-secondary !px-3 !py-2 text-xs">Edit</button><button type="button" onClick={() => deleteEmail(item)} disabled={deletingId === item._id} className="btn-secondary !px-3 !py-2 text-xs text-red-600 dark:text-red-300">{deletingId === item._id ? <Loader2 size={13} className="animate-spin"/> : <Trash2 size={13}/>} Delete</button><button type="button" onClick={() => openInBulk(item)} className="btn-primary !px-3 !py-2 text-xs inline-flex items-center gap-1.5">Use in bulk <ArrowRight size={13}/></button></>}</div>
-      </article>)}</div>}
-    {isWhatsApp && <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-100 px-4 py-3 dark:border-ink-800"><p className="text-xs text-ink-500 dark:text-ink-400">Only approved templates can be sent. Meta controls approval, not this dashboard.</p><button type="button" onClick={() => navigate('/outreach/whatsapp')} className="btn-primary inline-flex items-center gap-2">Open WhatsApp bulk <ArrowRight size={15}/></button></div>}
+    {loading ? <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]"><div className="space-y-2">{[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-16" />)}</div><Skeleton className="h-80" /></div>
+      : items.length === 0 ? <div className="card flex flex-col items-center justify-center py-14 text-center"><span className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-ink-100 text-ink-500 dark:bg-ink-800"><FileText size={22}/></span><h2 className="font-display text-base font-bold text-ink-900 dark:text-white">No templates yet</h2><p className="mt-1 max-w-md text-sm text-ink-500 dark:text-ink-400">{isWhatsApp ? 'Create one and wait for Meta approval.' : 'Create one, then use it in email campaigns.'}</p><button type="button" onClick={openCreate} className="btn-primary mt-4 inline-flex items-center gap-2"><Plus size={15}/> Create first template</button></div>
+      : <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
+        {/* Left: template list */}
+        <div className="card min-w-0 !p-2">
+          {visibleItems.length === 0 ? <p className="px-3 py-8 text-center text-sm text-ink-400">No templates in this filter.</p> : <ul className="max-h-[calc(100vh-17rem)] space-y-1 overflow-y-auto">{visibleItems.map((item) => {
+            const key = item.id || item._id || item.name;
+            const active = (selectedItem?.id || selectedItem?._id || selectedItem?.name) === key;
+            return <li key={key}><button type="button" onClick={() => setSelectedKey(key)} className={`flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left transition ${active ? 'bg-brand-50 ring-1 ring-inset ring-brand-200 dark:bg-brand-900/20 dark:ring-brand-800' : 'hover:bg-ink-50 dark:hover:bg-ink-800/60'}`}>
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${isWhatsApp ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300' : 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'}`}><Icon size={15}/></span>
+              <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold text-ink-900 dark:text-white">{item.name}</span><span className="block truncate text-[11px] text-ink-400">{isWhatsApp ? `${item.category || 'Template'} · ${item.language || ''}` : `${EMAIL_CATEGORIES.find((c) => c.value === item.category)?.label || 'General'}`}</span></span>
+              {isWhatsApp && <StatusBadge status={item.status}/>}
+            </button></li>;
+          })}</ul>}
+        </div>
+
+        {/* Right: preview of the selected template */}
+        {selectedItem ? <article className="card min-w-0 !p-4 sm:!p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0"><h3 className="break-words font-display text-lg font-bold text-ink-900 dark:text-white">{selectedItem.name}</h3><p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">{isWhatsApp ? `${selectedItem.category || 'Template'} · ${selectedItem.language || ''}` : `Updated ${new Date(selectedItem.updatedAt || selectedItem.createdAt).toLocaleDateString('en-IN')}`}</p></div>
+            {isWhatsApp ? <StatusBadge status={selectedItem.status}/> : <span className="rounded-full bg-brand-50 px-2.5 py-1 text-[10px] font-bold uppercase text-brand-700 dark:bg-brand-900/30 dark:text-brand-300">Saved</span>}
+          </div>
+          {isWhatsApp && statusOf(selectedItem) === 'REJECTED' && <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-200">Rejected: {String(selectedItem.rejectedReason || 'No reason given. Edit the content and submit a new template.').replaceAll('_', ' ').toLowerCase()}</p>}
+          {isWhatsApp && statusOf(selectedItem) === 'PENDING' && <p className="mt-3 text-xs text-amber-700 dark:text-amber-300">In Meta review. It will be usable once approved.</p>}
+          <div className="mt-4 rounded-2xl bg-slate-50 p-4 dark:bg-ink-950/50">
+            {isWhatsApp ? <WhatsAppPreview className="mx-auto max-w-sm" {...partsFromTemplate(selectedItem)} values={['Ayush', 'Kanpur', 'Sunday 11 am']} />
+              : <div className="mx-auto max-w-[480px] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"><div className="border-b border-slate-100 px-4 py-3"><div className="text-sm font-semibold text-slate-800">{companyLabel}</div><div className="mt-2 text-base font-semibold text-slate-900">{selectedItem.subject}</div></div><div className="p-4">{selectedItem.imageUrl && <img src={selectedItem.imageUrl} alt="" className="mb-4 max-h-56 w-full rounded-lg object-contain"/>}<p className="whitespace-pre-wrap break-words text-sm leading-6 text-slate-700">{selectedItem.body}</p></div></div>}
+          </div>
+          <div className="mt-4 flex flex-wrap justify-end gap-2">{isWhatsApp ? <><button type="button" onClick={() => deleteWhatsApp(selectedItem)} disabled={deletingId === selectedItem.name} className="btn-secondary !px-3 !py-2 text-xs text-red-600 dark:text-red-300">{deletingId === selectedItem.name ? <Loader2 size={13} className="animate-spin"/> : <Trash2 size={13}/>} Delete from Meta</button>{statusOf(selectedItem) === 'APPROVED' && <button type="button" onClick={() => openInBulk(selectedItem)} className="btn-primary !px-3 !py-2 text-xs inline-flex items-center gap-1.5">Use in campaign <ArrowRight size={13}/></button>}</> : <><button type="button" onClick={() => openEdit(selectedItem)} className="btn-secondary !px-3 !py-2 text-xs">Edit</button><button type="button" onClick={() => deleteEmail(selectedItem)} disabled={deletingId === selectedItem._id} className="btn-secondary !px-3 !py-2 text-xs text-red-600 dark:text-red-300">{deletingId === selectedItem._id ? <Loader2 size={13} className="animate-spin"/> : <Trash2 size={13}/>} Delete</button><button type="button" onClick={() => openInBulk(selectedItem)} className="btn-primary !px-3 !py-2 text-xs inline-flex items-center gap-1.5">Use in campaign <ArrowRight size={13}/></button></>}</div>
+        </article> : <div className="card flex items-center justify-center py-16 text-sm text-ink-400">Select a template to preview it.</div>}
+      </div>}
   </div>;
 }

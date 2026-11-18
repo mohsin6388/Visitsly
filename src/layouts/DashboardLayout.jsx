@@ -4,14 +4,15 @@ import {
   LayoutDashboard, Users, Building2, CalendarCheck, Clock, Settings as SettingsIcon,
   UserCircle, LogOut, Moon, Sun, Menu, Mail, MessageCircle, Loader2, ChevronDown,
   MessageSquare, Flame, Smartphone, PanelLeftClose, PanelLeftOpen, FileText,
-  Briefcase, CreditCard, UsersRound, Rocket, Link2, TrendingUp, BarChart3, Handshake, Settings2, ListChecks,
+  Briefcase, CreditCard, UsersRound, Rocket, Link2, TrendingUp, BarChart3, Handshake, Settings2, ListChecks, Lock,
 } from 'lucide-react';
 import { useAuthStore, useOrgRole } from '../store/authStore.js';
 import { orgApi } from '../api/saasApi.js';
 import SubscriptionBanner from '../features/saas/SubscriptionBanner.jsx';
+import LiveSendingPanel from '../features/outreach/LiveSendingPanel.jsx';
 import { authApi } from '../api/authApi.js';
 import { useOutreachSummaryLive } from '../hooks/useOutreachLive.js';
-import { Toaster, toast } from '../components/ui/index.jsx';
+import { Toaster, toast, PageLoader } from '../components/ui/index.jsx';
 import { getSocket } from '../lib/socket.js';
 
 const NAV_GROUPS = [
@@ -21,18 +22,18 @@ const NAV_GROUPS = [
     type: 'group', key: 'whatsapp', label: 'WhatsApp AI', icon: MessageCircle, children: [
       { to: '/whatsapp', label: 'Connect number', icon: Smartphone },
       { to: '/whatsapp/conversations', label: 'AI inbox', icon: MessageSquare },
-      { to: '/outreach/whatsapp', label: 'Campaigns', icon: Rocket, channel: 'whatsapp', roles: ['owner', 'manager'] },
+      { to: '/outreach/whatsapp', label: 'Campaigns', icon: Rocket, channel: 'whatsapp', roles: ['owner', 'manager'], feature: 'bulkWhatsapp' },
       { to: '/whatsapp/leads', label: 'WhatsApp leads', icon: Flame },
       { to: '/whatsapp/templates', label: 'Templates', icon: FileText, roles: ['owner', 'manager'] },
-      { to: '/whatsapp/visit-confirmation', label: 'Visit confirmation', icon: CalendarCheck, roles: ['owner', 'manager'] },
+      { to: '/whatsapp/visit-confirmation', label: 'AI calling', icon: CalendarCheck, roles: ['owner', 'manager'], feature: 'aiCalling' },
     ],
   },
   {
     type: 'group', key: 'email', label: 'Email automation', icon: Mail, children: [
-      { to: '/email/setup', label: 'Setup', icon: Settings2 },
-      { to: '/outreach/email', label: 'Campaigns', icon: Mail, channel: 'email', roles: ['owner', 'manager'] },
-      { to: '/email/templates', label: 'Templates', icon: FileText, roles: ['owner', 'manager'] },
-      { to: '/email/details', label: 'Email details', icon: ListChecks },
+      { to: '/email/setup', label: 'Setup', icon: Settings2, feature: 'emailCampaigns' },
+      { to: '/outreach/email', label: 'Campaigns', icon: Mail, channel: 'email', roles: ['owner', 'manager'], feature: 'emailCampaigns' },
+      { to: '/email/templates', label: 'Templates', icon: FileText, roles: ['owner', 'manager'], feature: 'emailCampaigns' },
+      { to: '/email/details', label: 'Email details', icon: ListChecks, feature: 'emailCampaigns' },
     ],
   },
   { type: 'link', to: '/properties', label: 'Properties', icon: Building2 },
@@ -82,6 +83,11 @@ export default function DashboardLayout() {
   const brandName = org?.branding?.productName || org?.name || 'Visitsly';
   const brandLogo = org?.branding?.logoUrl || '';
 
+  // Medium density for all app screens (see index.css → html.app-compact).
+  useEffect(() => {
+    document.documentElement.classList.add('app-compact');
+    return () => document.documentElement.classList.remove('app-compact');
+  }, []);
   // Keep plan, usage and subscription status fresh (banner + limits).
   useEffect(() => {
     const load = () => orgApi.get().then((r) => setOrg(r.data.org)).catch(() => {});
@@ -93,7 +99,7 @@ export default function DashboardLayout() {
   useEffect(() => {
     const socket = getSocket();
     const onNotification = (p) => {
-      const labels = { hot_lead: '🔥 Nayi hot lead aayi hai — AI inbox dekhein', visit_booked: '📅 Nayi site visit book hui', visit_confirmed: '✅ Ek visit confirm hui', visit_declined: '⚠️ Ek customer visit par nahi aa payega', budget: '💰 Budget alert — Reports → Budget dekhein' };
+      const labels = { hot_lead: '🔥 New hot lead — check the AI inbox', visit_booked: '📅 New site visit booked', visit_confirmed: '✅ A visit was confirmed', visit_declined: '⚠️ A customer can’t make their visit', budget: '💰 Budget alert — see Reports → Budget' };
       if (p?.kind && labels[p.kind]) toast.info(labels[p.kind]);
     };
     socket.on('notification:new', onNotification);
@@ -146,7 +152,7 @@ export default function DashboardLayout() {
         {item.children.map((child) => {
           const ChildIcon = child.icon;
           return <NavLink key={child.to} to={child.to} end={child.to === '/whatsapp'} onClick={() => setSidebarOpen(false)} className={({ isActive }) => `flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium transition ${isActive ? 'bg-emerald-400/10 text-emerald-200 ring-1 ring-inset ring-emerald-300/15' : 'text-slate-400 hover:bg-white/[0.05] hover:text-slate-100'}`}>
-            <ChildIcon size={15} className="shrink-0" /><span className="flex-1">{child.label}</span>{child.channel && <OutreachBadge stats={outreach?.[child.channel]} />}
+            <ChildIcon size={15} className="shrink-0" /><span className="flex-1">{child.label}</span>{child.feature && org?.features?.[child.feature] === false ? <Lock size={12} className="text-amber-300/80" aria-label="Upgrade to unlock" /> : child.channel && <OutreachBadge stats={outreach?.[child.channel]} />}
           </NavLink>;
         })}
       </div>}
@@ -176,9 +182,10 @@ export default function DashboardLayout() {
     {sidebarOpen && <div className="fixed inset-0 z-40 lg:hidden"><button type="button" aria-label="Close navigation" className="absolute inset-0 h-full w-full bg-black/50" onClick={() => setSidebarOpen(false)} /><aside className="absolute left-0 top-0 h-full w-72 overflow-hidden bg-[#0B1220]"><div className="pointer-events-none absolute right-[-80px] top-28 h-64 w-64 rounded-full bg-emerald-500/[0.08] blur-3xl" /><div className="relative z-10 h-full">{SidebarContent}</div></aside></div>}
     <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
       <SubscriptionBanner />
+      <LiveSendingPanel />
       <header className="flex h-[72px] flex-shrink-0 items-center justify-between border-b border-slate-200/80 bg-white/95 px-4 backdrop-blur dark:border-ink-800 dark:bg-ink-900 sm:px-6">
-        <div className="flex min-w-0 items-center gap-3"><button className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={21} /></button><div className="min-w-0"><p className="truncate text-sm font-bold tracking-tight text-slate-900 dark:text-white">{brandName}</p><p className="mt-0.5 text-[11px] text-slate-400">{org ? (org.status === 'trialing' ? `Free trial · ${org.subscription?.daysLeft ?? ''} days left` : `${org.planName || 'Workspace'} plan`) : 'Property sales workspace'}</p></div></div>
-        <div className="flex items-center gap-2 sm:gap-3"><button onClick={() => navigate('/whatsapp')} className={`hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition sm:inline-flex ${whatsappConnected ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}><span className={`h-1.5 w-1.5 rounded-full ${whatsappConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />{whatsappConnected ? 'WhatsApp connected' : 'Connect WhatsApp'}</button><button onClick={toggleDarkMode} aria-label="Toggle dark mode" className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 dark:text-ink-300 dark:hover:bg-ink-800">{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><button onClick={() => navigate('/profile')} title={user?.name || 'Profile'} aria-label="Open profile" className="flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-1.5 text-left transition hover:bg-slate-50 dark:border-ink-700 dark:hover:bg-ink-800"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-800 dark:bg-brand-900 dark:text-brand-200">{user?.name?.[0]?.toUpperCase() || 'U'}</span><span className="hidden md:block"><span className="block text-xs font-semibold capitalize text-slate-700 dark:text-ink-200">{user?.name?.split(' ')?.[0] || orgRole}</span><span className="block text-[10px] capitalize text-slate-400">{orgRole}</span></span></button></div>
+        <div className="flex min-w-0 items-center gap-3"><button className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 lg:hidden" onClick={() => setSidebarOpen(true)} aria-label="Open menu"><Menu size={21} /></button><div className="min-w-0"><p className="truncate text-sm font-bold tracking-tight text-slate-900 dark:text-white">{brandName}</p><p className="mt-0.5 text-[11px] text-slate-400">{org && org.status !== 'trialing' ? `${org.planName || 'Workspace'} plan` : 'Property sales workspace'}</p></div></div>
+        <div className="flex items-center gap-2 sm:gap-3">{org?.status === 'trialing' && org?.subscription?.active !== false && <button type="button" onClick={() => orgRole === 'owner' && navigate('/billing')} title={orgRole === 'owner' ? 'Choose a plan' : 'Free trial'} className="hidden items-center gap-1.5 rounded-full border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 sm:inline-flex"><Clock size={13} />Trial: {org.subscription?.daysLeft ?? 0} {org.subscription?.daysLeft === 1 ? 'day' : 'days'} left{orgRole === 'owner' && <span className="ml-1 rounded-full bg-amber-500 px-2 py-0.5 text-[10px] text-white">Upgrade</span>}</button>}<button onClick={() => navigate('/whatsapp')} className={`hidden items-center gap-2 rounded-full border px-3 py-2 text-xs font-semibold transition sm:inline-flex ${whatsappConnected ? 'border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100' : 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'}`}><span className={`h-1.5 w-1.5 rounded-full ${whatsappConnected ? 'bg-emerald-500' : 'bg-amber-500'}`} />{whatsappConnected ? 'WhatsApp connected' : 'Connect WhatsApp'}</button><button onClick={toggleDarkMode} aria-label="Toggle dark mode" className="rounded-xl p-2 text-slate-500 transition hover:bg-slate-100 dark:text-ink-300 dark:hover:bg-ink-800">{darkMode ? <Sun size={18} /> : <Moon size={18} />}</button><button onClick={() => navigate('/profile')} title={user?.name || 'Profile'} aria-label="Open profile" className="flex items-center gap-2 rounded-xl border border-slate-200 px-2 py-1.5 text-left transition hover:bg-slate-50 dark:border-ink-700 dark:hover:bg-ink-800"><span className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-800 dark:bg-brand-900 dark:text-brand-200">{user?.name?.[0]?.toUpperCase() || 'U'}</span><span className="hidden md:block"><span className="block text-xs font-semibold capitalize text-slate-700 dark:text-ink-200">{user?.name?.split(' ')?.[0] || orgRole}</span><span className="block text-[10px] capitalize text-slate-400">{orgRole}</span></span></button></div>
       </header>
       <main className="flex-1 overflow-y-auto p-4 sm:p-6 xl:p-7">
         {org && !(org.whatsapp?.status === 'connected' && org.whatsapp?.phoneNumberId) && !['/get-started', '/whatsapp'].includes(location.pathname) && (
@@ -187,7 +194,7 @@ export default function DashboardLayout() {
             <Link to="/whatsapp" className="inline-flex shrink-0 items-center gap-2 rounded-lg bg-amber-900 px-3 py-2 text-xs font-semibold text-white no-underline transition hover:bg-amber-800 dark:bg-amber-200 dark:text-amber-950">Continue setup <span aria-hidden="true">→</span></Link>
           </div>
         )}
-        <Suspense fallback={<div className="flex justify-center py-20"><Loader2 className="animate-spin text-ink-400" /></div>}><Outlet /></Suspense>
+        <Suspense fallback={<PageLoader />}><Outlet /></Suspense>
       </main>
     </div>
     <Toaster />

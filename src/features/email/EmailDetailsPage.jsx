@@ -57,7 +57,7 @@ export default function EmailDetailsPage() {
       const res = await emailApi.details({ page, limit: 25, ...(status ? { status } : {}), ...(from ? { from } : {}), ...(to ? { to } : {}), ...(search ? { search } : {}) });
       setData(res.data);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Email details load nahi hui.');
+      setError(err?.response?.data?.message || 'Could not load email details.');
     } finally { setLoading(false); }
   }, [page, status, from, to, search]);
   useEffect(() => { load(); }, [load]);
@@ -109,7 +109,7 @@ export default function EmailDetailsPage() {
 
       {daily.length > 0 && (
         <section className="card !p-0">
-          <h2 className="px-5 pt-4 text-sm font-semibold text-ink-900 dark:text-white">Din ke hisaab se</h2>
+          <h2 className="px-5 pt-4 text-sm font-semibold text-ink-900 dark:text-white">By day</h2>
           <div className="mt-2 overflow-x-auto">
             <table className="w-full text-sm">
               <thead><tr className="text-left text-xs text-ink-500"><th className="px-5 py-2 font-medium">Date</th><th className="px-3 py-2 font-medium">Total</th><th className="px-3 py-2 font-medium">Sent</th><th className="px-3 py-2 font-medium">Failed</th><th className="px-3 py-2 font-medium">Pending</th><th className="px-5 py-2" /></tr></thead>
@@ -121,7 +121,7 @@ export default function EmailDetailsPage() {
                     <td className="px-3 py-2.5 text-green-700 dark:text-green-300">{d.sent}</td>
                     <td className="px-3 py-2.5 text-red-600">{d.failed}</td>
                     <td className="px-3 py-2.5 text-amber-600">{d.pending}</td>
-                    <td className="px-5 py-2.5 text-right"><button type="button" onClick={() => pickDay(d.date)} className="text-xs font-semibold text-brand-600 hover:underline">Dekhein</button></td>
+                    <td className="px-5 py-2.5 text-right"><button type="button" onClick={() => pickDay(d.date)} className="text-xs font-semibold text-brand-600 hover:underline">View</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -133,12 +133,12 @@ export default function EmailDetailsPage() {
       <section className="card !p-0">
         <div className="overflow-x-auto">
           <table className="w-full min-w-[720px] text-sm">
-            <thead><tr className="border-b border-ink-100 text-left text-xs text-ink-500 dark:border-ink-800"><th className="px-5 py-3 font-medium">Kisko</th><th className="px-3 py-3 font-medium">Subject / Campaign</th><th className="px-3 py-3 font-medium">Time</th><th className="px-3 py-3 font-medium">Status</th></tr></thead>
+            <thead><tr className="border-b border-ink-100 text-left text-xs text-ink-500 dark:border-ink-800"><th className="px-5 py-3 font-medium">To</th><th className="px-3 py-3 font-medium">Subject / Campaign</th><th className="px-3 py-3 font-medium">Time</th><th className="px-3 py-3 font-medium">Status</th></tr></thead>
             <tbody className="divide-y divide-ink-100 dark:divide-ink-800">
               {loading && !items.length ? (
                 <tr><td colSpan={4} className="py-14 text-center"><Loader2 className="mx-auto animate-spin text-ink-400" /></td></tr>
               ) : !items.length ? (
-                <tr><td colSpan={4} className="py-14 text-center text-sm text-ink-500"><Inbox className="mx-auto mb-2 text-ink-300" size={26} />Koi email nahi mili. <Link to="/outreach/email" className="font-semibold text-brand-600 hover:underline">Campaign banayein</Link></td></tr>
+                <tr><td colSpan={4} className="py-14 text-center text-sm text-ink-500"><Inbox className="mx-auto mb-2 text-ink-300" size={26} />No emails found. <Link to="/outreach/email" className="font-semibold text-brand-600 hover:underline">Create campaign</Link></td></tr>
               ) : items.map((m) => (
                 <tr key={m._id} className="align-top">
                   <td className="px-5 py-3"><p className="font-medium text-ink-900 dark:text-white">{m.lead?.name || m.to}</p>{m.lead?.name && <p className="text-xs text-ink-500">{m.to}</p>}</td>

@@ -5,6 +5,7 @@ import { orgApi } from '../../api/saasApi.js';
 import { useAuthStore, useOrgRole } from '../../store/authStore.js';
 import { ROLE_LABEL, ROLE_HELP, fmtDate } from '../../lib/saas.jsx';
 import { COUNTRY_OPTIONS } from '../../lib/country.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 function CompanyProfile() {
   const org = useAuthStore((s) => s.org);
@@ -26,9 +27,9 @@ function CompanyProfile() {
     try {
       const res = await orgApi.update(form);
       setOrg(res.data.org);
-      setMsg({ ok: true, text: 'Company details save ho gaye' });
+      setMsg({ ok: true, text: 'Company details saved' });
     } catch (err) {
-      setMsg({ ok: false, text: err?.response?.data?.message || 'Save nahi hua' });
+      setMsg({ ok: false, text: err?.response?.data?.message || 'Could not save' });
     } finally {
       setSaving(false);
     }
@@ -37,18 +38,19 @@ function CompanyProfile() {
   return (
     <form onSubmit={save} className="card min-w-0">
       <h2 className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><Building size={18} /> Company details</h2>
-      <p className="mt-1 text-sm text-ink-500">Ye naam AI chats, emails aur invoices par dikhta hai.</p>
+      <p className="mt-1 text-sm text-ink-500">Shown on AI chats, emails and invoices.</p>
       <div className="mt-4 grid gap-4 sm:grid-cols-2">
         <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">Company name</span><input className="input-field" required value={form.name} onChange={set('name')} /></label>
         <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">City</span><input className="input-field" value={form.city} onChange={set('city')} /></label>
         <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">Business type</span>
           <select className="input-field" value={form.businessType} onChange={set('businessType')}><option value="broker">Broker</option><option value="agency">Agency</option><option value="builder">Builder</option><option value="other">Other</option></select>
         </label>
-        <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">GSTIN (invoice ke liye)</span><input className="input-field font-mono uppercase" maxLength={15} value={form.gstin} onChange={set('gstin')} /></label>
+        <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">GSTIN (for invoices)</span><input className="input-field font-mono uppercase" maxLength={15} value={form.gstin} onChange={set('gstin')} /></label>
         <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">Billing email</span><input type="email" className="input-field" value={form.billingEmail} onChange={set('billingEmail')} /></label>
-        <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">Phone (alerts isi par aayenge)</span><input className="input-field" value={form.phone} onChange={set('phone')} /></label>
+        <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">Phone (alerts go here)</span><input className="input-field" value={form.phone} onChange={set('phone')} /></label>
         <label className="text-sm"><span className="mb-1 block font-medium text-ink-700 dark:text-ink-200">Billing country / currency</span>
-          <select className="input-field" value={form.country} onChange={set('country')} disabled={org?.status === 'active'}>{COUNTRY_OPTIONS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</select>
+          <select className="input-field" value={form.country} onChange={set('country')} disabled={org?.countryLocked !== false || org?.status === 'active'}>{COUNTRY_OPTIONS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}</select>
+          {org?.countryLocked !== false && <span className="mt-1 block text-xs text-ink-400">Fixed after setup (it decides your billing currency). Contact support to change it.</span>}
         </label>
       </div>
       <div className="mt-4 flex items-center gap-3">
@@ -72,10 +74,10 @@ function CredentialBox({ cred, onClose }) {
         <button onClick={onClose} aria-label="Close" className="text-green-800"><X size={16} /></button>
       </div>
       <pre className="mt-2 whitespace-pre-wrap break-all rounded-lg bg-white/70 p-3 font-mono text-xs dark:bg-ink-900">{text}</pre>
-      <p className="mt-2 text-xs">Ye password sirf abhi dikhega — copy karke teammate ko bhej dijiye.</p>
+      <p className="mt-2 text-xs">This password is shown only once — copy it and share with your teammate.</p>
       <div className="mt-3 flex flex-wrap gap-2">
         <button onClick={copy} className="btn-secondary gap-2 !py-1.5"><Copy size={14} />{copied ? 'Copied' : 'Copy'}</button>
-        <a className="btn-primary !py-1.5" target="_blank" rel="noreferrer" href={`https://wa.me/?text=${encodeURIComponent(text)}`}>WhatsApp par bhejein</a>
+        <a className="btn-primary !py-1.5" target="_blank" rel="noreferrer" href={`https://wa.me/?text=${encodeURIComponent(text)}`}>Share on WhatsApp</a>
       </div>
     </div>
   );
@@ -110,15 +112,15 @@ function BulkAdd({ myRole, onDone, onCancel, remaining }) {
       else setRows(members.filter((m) => failed.some((f) => f.email === m.email)).map((m) => ({ ...emptyRow(), ...m, password: m.password || '' })));
     } catch (err) {
       const d = err?.response?.data;
-      setErrors([d?.details?.[0]?.message || d?.message || 'Add nahi hua']);
+      setErrors([d?.details?.[0]?.message || d?.message || 'Could not add']);
     } finally { setBusy(false); }
   };
   return (
     <form onSubmit={submit} className="mt-4 space-y-3 rounded-xl border border-ink-100 p-4 dark:border-ink-800">
-      <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">Teammates add karein {remaining != null && <span className="font-normal text-ink-500">({remaining} aur add kar sakte hain)</span>}</p>
+      <p className="text-sm font-semibold text-ink-800 dark:text-ink-100">Add teammates {remaining != null && <span className="font-normal text-ink-500">({remaining} more allowed)</span>}</p>
       {rows.map((row, i) => (
         <div key={i} className="grid gap-2 rounded-lg bg-ink-50/60 p-2 dark:bg-ink-800/40 sm:grid-cols-[1fr_1.2fr_0.9fr_0.8fr_1fr_auto]">
-          <input className="input-field" placeholder="Naam" required value={row.name} onChange={(e) => update(i, 'name', e.target.value)} />
+          <input className="input-field" placeholder="Name" required value={row.name} onChange={(e) => update(i, 'name', e.target.value)} />
           <input className="input-field" type="email" placeholder="Email (login ID)" required value={row.email} onChange={(e) => update(i, 'email', e.target.value)} />
           <input className="input-field" placeholder="Mobile" value={row.phone} onChange={(e) => update(i, 'phone', e.target.value)} />
           <select className="input-field" value={row.orgRole} onChange={(e) => update(i, 'orgRole', e.target.value)}>
@@ -129,18 +131,18 @@ function BulkAdd({ myRole, onDone, onCancel, remaining }) {
           <button type="button" className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 disabled:opacity-30 dark:hover:bg-ink-800" disabled={rows.length === 1} onClick={() => setRows((r) => r.filter((_, idx) => idx !== i))} aria-label="Remove row"><X size={15} /></button>
         </div>
       ))}
-      <p className="text-[11px] text-ink-500">Password: kam se kam 8 characters, 1 capital letter aur 1 number (jaise <code>Sales@2026</code>). Khali chhodenge to system khud bana dega.</p>
+      <p className="text-[11px] text-ink-500">Password: 8+ characters with 1 capital letter and 1 number (e.g. <code>Sales@2026</code>). Leave blank to auto-generate.</p>
       <div className="flex flex-wrap gap-2">
-        <button type="button" className="btn-secondary gap-1.5 !py-1.5 text-xs" onClick={() => setRows((r) => [...r, emptyRow()])}><UserPlus size={14} /> Ek aur row</button>
+        <button type="button" className="btn-secondary gap-1.5 !py-1.5 text-xs" onClick={() => setRows((r) => [...r, emptyRow()])}><UserPlus size={14} /> Add row</button>
         <details className="text-xs">
-          <summary className="cursor-pointer py-1.5 font-semibold text-brand-600">Excel se paste karein</summary>
-          <textarea rows={4} className="input-field mt-2 font-mono text-xs" placeholder={'Naam, email, mobile, password\nRahul, rahul@abc.com, 9876543210, Rahul@123'} value={paste} onChange={(e) => setPaste(e.target.value)} />
-          <button type="button" className="btn-secondary mt-1 !py-1 text-xs" onClick={fromPaste}>Rows banayein</button>
+          <summary className="cursor-pointer py-1.5 font-semibold text-brand-600">Paste from Excel</summary>
+          <textarea rows={4} className="input-field mt-2 font-mono text-xs" placeholder={'Name, email, mobile, password\nRahul, rahul@abc.com, 9876543210, Rahul@123'} value={paste} onChange={(e) => setPaste(e.target.value)} />
+          <button type="button" className="btn-secondary mt-1 !py-1 text-xs" onClick={fromPaste}>Create rows</button>
         </details>
       </div>
       {errors.length > 0 && <ul className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{errors.map((e) => <li key={e}>{e}</li>)}</ul>}
       <div className="flex gap-2">
-        <button className="btn-primary gap-2" disabled={busy}>{busy && <Loader2 size={15} className="animate-spin" />}Add karein</button>
+        <button className="btn-primary gap-2" disabled={busy}>{busy && <Loader2 size={15} className="animate-spin" />}Add</button>
         <button type="button" className="btn-secondary" onClick={onCancel}>Cancel</button>
       </div>
     </form>
@@ -168,11 +170,11 @@ export default function TeamPage() {
     setError('');
     try {
       const res = await orgApi.invite(invite);
-      setCred({ title: `${res.data.member.name} add ho gaye`, email: res.data.member.email, password: res.data.tempPassword, loginUrl: res.data.loginUrl });
+      setCred({ title: `${res.data.member.name} added`, email: res.data.member.email, password: res.data.tempPassword, loginUrl: res.data.loginUrl });
       setInvite(null);
       qc.invalidateQueries({ queryKey: ['team'] });
     } catch (err) {
-      setError(err?.response?.data?.message || 'Add nahi hua');
+      setError(err?.response?.data?.message || 'Could not add');
     } finally {
       setBusy(false);
     }
@@ -184,29 +186,29 @@ export default function TeamPage() {
       await orgApi.updateMember(m.id, payload);
       qc.invalidateQueries({ queryKey: ['team'] });
     } catch (err) {
-      setError(err?.response?.data?.message || 'Update nahi hua');
+      setError(err?.response?.data?.message || 'Could not update');
     }
   };
 
   const setPw = async (m) => {
-    const pw = window.prompt(`${m.name} ka naya password likhein (8+ characters, 1 capital, 1 number):`, '');
+    const pw = window.prompt(`New password for ${m.name} (8+ characters, 1 capital, 1 number):`, '');
     if (!pw) return;
     try {
       await orgApi.setMemberPassword(m.id, pw);
-      setCred({ title: `${m.name} ka password set ho gaya`, email: m.email, password: pw, name: m.name });
+      setCred({ title: `Password set for ${m.name}`, email: m.email, password: pw, name: m.name });
     } catch (err) {
       const d = err?.response?.data;
-      setError(d?.details?.[0]?.message || d?.message || 'Password set nahi hua');
+      setError(d?.details?.[0]?.message || d?.message || 'Could not set password');
     }
   };
 
   const resetPw = async (m) => {
-    if (!window.confirm(`${m.name} ka naya temporary password banayein? Purana password kaam nahi karega.`)) return;
+    if (!(await confirmDialog({ title: `Reset password for ${m.name}?`, message: 'A new temporary password is created and the old one stops working.', confirmLabel: 'Reset' }))) return;
     try {
       const res = await orgApi.resetMemberPassword(m.id);
-      setCred({ title: `${m.name} ka naya password`, email: m.email, password: res.data.tempPassword });
+      setCred({ title: `New password for ${m.name}`, email: m.email, password: res.data.tempPassword });
     } catch (err) {
-      setError(err?.response?.data?.message || 'Reset nahi hua');
+      setError(err?.response?.data?.message || 'Could not reset');
     }
   };
 
@@ -214,7 +216,7 @@ export default function TeamPage() {
     <div className="mx-auto max-w-5xl space-y-6">
       <div>
         <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Company & Team</h1>
-        <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Company details aur kaun-kaun Visitsly use kar sakta hai.</p>
+        <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Company details and who can use Visitsly.</p>
       </div>
 
       <CompanyProfile />
@@ -223,10 +225,10 @@ export default function TeamPage() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="flex items-center gap-2 font-semibold text-ink-900 dark:text-white"><Users size={18} /> Team</h2>
-            <p className="mt-1 text-sm text-ink-500">{active} / {limit ?? 'Unlimited'} users is plan mein</p>
+            <p className="mt-1 text-sm text-ink-500">{active} / {limit ?? 'Unlimited'} users on this plan</p>
           </div>
-          <button className="btn-primary gap-2" onClick={() => { setInvite({ name: '', email: '', phone: '', orgRole: 'agent' }); setCred(null); }} disabled={limit != null && active >= limit} title={limit != null && active >= limit ? 'User limit poori — plan upgrade karein' : undefined}>
-            <UserPlus size={16} /> Teammates add karein
+          <button className="btn-primary gap-2" onClick={() => { setInvite({ name: '', email: '', phone: '', orgRole: 'agent' }); setCred(null); }} disabled={limit != null && active >= limit} title={limit != null && active >= limit ? 'User limit reached — upgrade your plan' : undefined}>
+            <UserPlus size={16} /> Add teammates
           </button>
         </div>
 
@@ -259,7 +261,7 @@ export default function TeamPage() {
                   const isMe = me?._id === m.id;
                   return (
                     <tr key={m.id} className={m.isActive ? '' : 'opacity-60'}>
-                      <td className="py-2.5 pr-3"><p className="font-medium text-ink-900 dark:text-white">{m.name}{isMe && <span className="ml-1 text-xs text-ink-400">(aap)</span>}</p><p className="text-xs text-ink-500">{m.email}</p></td>
+                      <td className="py-2.5 pr-3"><p className="font-medium text-ink-900 dark:text-white">{m.name}{isMe && <span className="ml-1 text-xs text-ink-400">(you)</span>}</p><p className="text-xs text-ink-500">{m.email}</p></td>
                       <td className="py-2.5 pr-3">
                         {isOwner || myRole !== 'owner' ? <span className="font-medium">{ROLE_LABEL[m.orgRole]}</span> : (
                           <select aria-label={`Role for ${m.name}`} className="input-field !w-auto !py-1.5" value={m.orgRole} onChange={(e) => update(m, { orgRole: e.target.value })}>
@@ -267,13 +269,13 @@ export default function TeamPage() {
                           </select>
                         )}
                       </td>
-                      <td className="py-2.5 pr-3 text-ink-500">{m.lastLoginAt ? fmtDate(m.lastLoginAt) : 'Kabhi nahi'}</td>
+                      <td className="py-2.5 pr-3 text-ink-500">{m.lastLoginAt ? fmtDate(m.lastLoginAt) : 'Never'}</td>
                       <td className="py-2.5 pr-3">{m.isActive ? <span className="text-green-700 dark:text-green-400">Active</span> : <span className="text-ink-500">Removed</span>}</td>
                       <td className="py-2.5 text-right">
                         {!isOwner && (
                           <div className="flex justify-end gap-2">
-                            <button className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => setPw(m)} title="Apna chuna hua password set karein">Password set</button>
-                            <button className="btn-secondary !px-2.5 !py-1.5" onClick={() => resetPw(m)} title="Auto password banayein"><KeyRound size={14} /></button>
+                            <button className="btn-secondary !px-2.5 !py-1.5 text-xs" onClick={() => setPw(m)} title="Set a password">Password set</button>
+                            <button className="btn-secondary !px-2.5 !py-1.5" onClick={() => resetPw(m)} title="Generate password"><KeyRound size={14} /></button>
                             <button className="btn-secondary !py-1.5 text-xs" onClick={() => update(m, { isActive: !m.isActive })}>{m.isActive ? 'Remove' : 'Restore'}</button>
                           </div>
                         )}

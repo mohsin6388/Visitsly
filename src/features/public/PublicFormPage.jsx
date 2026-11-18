@@ -12,7 +12,7 @@ export default function PublicFormPage() {
   const [state, setState] = useState('idle');
 
   useEffect(() => {
-    publicApi.formInfo(key).then((r) => setInfo(r.data)).catch(() => setError('Ye form ab available nahi hai.'));
+    publicApi.formInfo(key).then((r) => setInfo(r.data)).catch(() => setError('This form is no longer available.'));
   }, [key]);
 
   const submit = async (e) => {
@@ -23,7 +23,7 @@ export default function PublicFormPage() {
       setState('done');
     } catch (err) {
       setState('idle');
-      setError(err?.response?.data?.message || 'Submit nahi hua, dobara try karein.');
+      setError(err?.response?.data?.message || 'Could not submit. Please try again.');
     }
   };
 
@@ -40,27 +40,27 @@ export default function PublicFormPage() {
           {state === 'done' ? (
             <div className="py-6 text-center">
               <CheckCircle2 size={40} className="mx-auto text-emerald-600" />
-              <p className="mt-3 font-display text-xl font-bold text-ink-900">Shukriya!</p>
-              <p className="mt-1 text-sm text-ink-600">Hum aapko WhatsApp par jald contact karenge.</p>
+              <p className="mt-3 font-display text-xl font-bold text-ink-900">Thank you!</p>
+              <p className="mt-1 text-sm text-ink-600">We’ll contact you on WhatsApp shortly.</p>
             </div>
           ) : !info && !error ? <div className="flex justify-center py-10"><Loader2 className="animate-spin text-ink-400" /></div> : (
             <form onSubmit={submit} className="space-y-3">
               <h1 className="font-display text-lg font-bold text-ink-900">Property enquiry</h1>
               {error && <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
-              <input className="input-field" placeholder="Aapka naam" required autoComplete="name" value={form.name} onChange={set('name')} />
+              <input className="input-field" placeholder="Your name" required autoComplete="name" value={form.name} onChange={set('name')} />
               <input className="input-field" placeholder="Mobile (WhatsApp)" required inputMode="tel" autoComplete="tel" value={form.phone} onChange={set('phone')} />
               <input className="input-field" placeholder="Email (optional)" type="email" autoComplete="email" value={form.email} onChange={set('email')} />
               {info?.projects?.length > 0 && (
                 <select className="input-field" value={form.project} onChange={set('project')} aria-label="Project">
-                  <option value="">Kaunsa project? (optional)</option>
+                  <option value="">Which project? (optional)</option>
                   {info.projects.map((p) => <option key={p} value={p}>{p}</option>)}
                 </select>
               )}
-              <input className="input-field" placeholder="Budget (jaise 60 lakh)" value={form.budget} onChange={set('budget')} />
+              <input className="input-field" placeholder="Budget (e.g. 60 lakh)" value={form.budget} onChange={set('budget')} />
               <textarea className="input-field" rows={3} placeholder="Requirement (2/3 BHK, location…)" value={form.message} onChange={set('message')} />
               <input className="hidden" tabIndex={-1} autoComplete="off" value={form.website} onChange={set('website')} aria-hidden="true" />
-              <button className="btn-primary w-full !bg-emerald-950 !py-3 hover:!bg-emerald-900" disabled={state === 'sending' || !info}>{state === 'sending' ? 'Bhej rahe hain…' : 'Submit'}</button>
-              <p className="text-center text-xs text-ink-400">Submit karke aap WhatsApp/call par contact ki anumati dete hain.</p>
+              <button className="btn-primary w-full !bg-emerald-950 !py-3 hover:!bg-emerald-900" disabled={state === 'sending' || !info}>{state === 'sending' ? 'Sending…' : 'Submit'}</button>
+              <p className="text-center text-xs text-ink-400">By submitting, you agree to be contacted on WhatsApp or by phone.</p>
             </form>
           )}
         </div>

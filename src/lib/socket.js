@@ -10,9 +10,9 @@ let socket = null;
 export function getSocket() {
   if (socket) return socket;
   socket = io(SOCKET_URL, {
-    // Function form: har (re)connect par ABHI ka access token jata hai.
-    // (Pehle token ek baar fix ho jata tha; 15 min baad expire hone par
-    // reconnect fail ho jata tha.)
+    // Function form: every (re)connect sends the CURRENT access token.
+    // (Previously the token was fixed once; after it expired in 15 min
+    // reconnects failed.)
     auth: (cb) => cb({ token: useAuthStore.getState().accessToken }),
     autoConnect: true,
   });

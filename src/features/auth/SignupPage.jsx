@@ -1,18 +1,12 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Loader2, ArrowRight, Eye, EyeOff, CheckCircle2 } from "lucide-react";
 import { authApi } from "../../api/authApi.js";
 import { publicApi } from "../../api/saasApi.js";
-import { guessCountry, COUNTRY_OPTIONS } from "../../lib/country.js";
-import { inr } from "../../lib/saas.jsx";
+import { detectCountry, initialCountry } from "../../lib/country.js";
+import { money } from "../../lib/saas.jsx";
+import PhoneInput, { toInternational } from "../../components/PhoneInput.jsx";
 import { AuthHeading, AuthTabs } from "./AuthParts.jsx";
-
-const TYPES = [
-  { value: "broker", label: "Broker" },
-  { value: "agency", label: "Agency" },
-  { value: "builder", label: "Builder" },
-  { value: "other", label: "Other" },
-];
 
 // Defined outside the page so inputs keep focus while typing.
 function Field({ id, label, error, children }) {
@@ -30,18 +24,18 @@ function Field({ id, label, error, children }) {
   );
 }
 
+/**
+ * Signup asks for three things only: mobile number (with dial code), email
+ * and password. Name, company, country, city and business type are asked in
+ * the onboarding wizard after the first login.
+ */
 export default function SignupPage() {
   const [params] = useSearchParams();
-  const [form, setForm] = useState({
-    companyName: "",
-    name: "",
-    email: "",
-    phone: "",
-    password: "",
-    city: "",
-    businessType: "broker",
-    country: COUNTRY_OPTIONS.some(([c]) => c === guessCountry()) ? guessCountry() : "IN",
-  });
+  const [form, setForm] = useState({ email: "", phone: "", password: "" });
+  // Dial-code country: detected (IP → browser), always changeable.
+  const [dialCountry, setDialCountry] = useState(() => initialCountry());
+  const [detected, setDetected] = useState(() => initialCountry());
+  const dialTouched = useRef(false);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -51,12 +45,24 @@ export default function SignupPage() {
   const plan = params.get("plan") || "";
 
   useEffect(() => {
+    let alive = true;
+    detectCountry().then(({ country }) => {
+      if (!alive) return;
+      setDetected(country);
+      if (!dialTouched.current) setDialCountry(country);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
     publicApi
-      .plans({ country: form.country })
+      .plans({ country: detected })
       .then((r) => setPlans(r.data))
       .catch(() => {});
-  }, [form.country]);
-  const chosen = plans?.plans?.find((p) => p.code === plan);
+  }, [detected]);
+  const chosen = plans?.plans?.find((p) => p.code === plan && !p.customPricing);
 
   const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
 
@@ -64,11 +70,20 @@ export default function SignupPage() {
     e.preventDefault();
     setError("");
     setFieldErrors({});
+    const phone = toInternational(dialCountry, form.phone);
+    if (!phone) {
+      setFieldErrors({ phone: "Enter your mobile number" });
+      return;
+    }
     setLoading(true);
     try {
       await authApi.signup({
-        ...form,
         email: form.email.trim().toLowerCase(),
+        phone,
+        password: form.password,
+        // Detected country: default region for the phone and the provisional
+        // company country (confirmed in onboarding).
+        country: detected,
         plan: plan || undefined,
       });
       navigate(
@@ -80,15 +95,15 @@ export default function SignupPage() {
       if (Array.isArray(details)) {
         const map = {};
         details.forEach((d) => {
-          const key = d.path.replace(/^body\./, "");
+          const key = String(d.path || "").replace(/^body\./, "");
           if (!map[key]) map[key] = d.message;
         });
         setFieldErrors(map);
-        setError("Neeche laal wale fields theek karein.");
+        setError("Please fix the highlighted fields.");
       } else {
         const message =
           err?.response?.data?.message ||
-          "Signup nahi ho paya. Dobara try karein.";
+          "Could not create your account. Please try again.";
         if (
           err?.response?.status === 409 &&
           /verification pending/i.test(message)
@@ -97,6 +112,15 @@ export default function SignupPage() {
             `/verify-email?email=${encodeURIComponent(form.email.trim().toLowerCase())}`,
             { replace: true },
           );
+          return;
+        }
+        // Show duplicate / invalid mobile or email next to its field.
+        if (/mobile/i.test(message)) {
+          setFieldErrors({ phone: message });
+          return;
+        }
+        if (err?.response?.status === 409 && /email/i.test(message)) {
+          setFieldErrors({ email: message });
           return;
         }
         setError(message);
@@ -108,135 +132,54 @@ export default function SignupPage() {
 
   return (
     <div>
-      <AuthHeading bold="Start your" light="Free trial.">
-        {plans?.trialDays || 7} din free. Pehle email verify hoga; card ki
-        zarurat nahi. Apna WhatsApp number jodiye aur AI ko leads se baat karne
-        dijiye.
+      <AuthHeading bold="Start your free trial">
+        {plans?.trialDays || 7} days free. No card needed.
       </AuthHeading>
-      <div className="mt-6">
+      <div className="mt-4">
         <AuthTabs active="signup" />
       </div>
-      {plans?.trial?.highlights?.length > 0 && (
-        <div className="mt-4 rounded-xl border border-lp-teal/25 bg-lp-teal/10 px-4 py-3 text-sm text-lp-ink">
-          <p className="font-semibold">Free trial mein included</p>
-          <ul className="mt-2 grid gap-1.5 sm:grid-cols-2">
-            {plans.trial.highlights.map((item) => (
-              <li key={item} className="flex items-start gap-2">
-                <CheckCircle2
-                  size={15}
-                  className="mt-0.5 shrink-0 text-lp-tealdark"
-                />
-                {item}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       {chosen && (
-        <div className="mt-4 flex items-center gap-2 rounded-xl border border-lp-teal/25 bg-lp-teal/10 px-3 py-2 text-sm text-lp-ink">
-          <CheckCircle2 size={16} /> Chosen plan: <strong>{chosen.name}</strong>{" "}
-          — {inr(chosen.monthly)}/mahina (trial ke baad)
+        <div className="mb-4 flex items-center gap-2 rounded-xl border border-lp-teal/25 bg-lp-teal/10 px-3 py-2 text-sm text-lp-ink">
+          <CheckCircle2 size={16} /> Plan: <strong>{chosen.name}</strong> —{" "}
+          {money(chosen.monthly, chosen.currency)}/month after trial
+          {chosen.currency === "INR" ? " + 18% GST" : ""}
         </div>
       )}
 
-      <form className="space-y-4" onSubmit={submit} noValidate>
+      <form className="space-y-3.5" onSubmit={submit} noValidate>
         {error && (
           <div
             role="alert"
-            className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            className="rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700"
           >
             {error}
           </div>
         )}
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field
-            id="companyName"
-            error={fieldErrors.companyName}
-            label="Company / firm ka naam"
-          >
-            <input
-              id="companyName"
-              required
-              className="auth-input px-4"
-              placeholder="e.g. Sharma Properties"
-              value={form.companyName}
-              onChange={set("companyName")}
-            />
-          </Field>
-          <Field id="name" error={fieldErrors.name} label="Aapka naam">
-            <input
-              id="name"
-              required
-              autoComplete="name"
-              className="auth-input px-4"
-              value={form.name}
-              onChange={set("name")}
-            />
-          </Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field id="phone" error={fieldErrors.phone} label="Mobile (WhatsApp)">
-            <input
-              id="phone"
-              required
-              inputMode="tel"
-              autoComplete="tel"
-              className="auth-input px-4"
-              placeholder="98XXXXXXXX"
-              value={form.phone}
-              onChange={set("phone")}
-            />
-          </Field>
-          <Field
+        <Field id="phone" error={fieldErrors.phone} label="WhatsApp / mobile number">
+          <PhoneInput
+            id="phone"
+            country={dialCountry}
+            onCountryChange={(c) => {
+              dialTouched.current = true;
+              setDialCountry(c);
+            }}
+            value={form.phone}
+            onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+            placeholder={dialCountry === "IN" ? "98XXXXXXXX" : dialCountry === "AE" ? "50XXXXXXX" : "Mobile number"}
+            invalid={Boolean(fieldErrors.phone)}
+          />
+        </Field>
+        <Field id="email" error={fieldErrors.email} label="Email">
+          <input
             id="email"
-            error={fieldErrors.email}
-            label="Email address (verification required)"
-          >
-            <input
-              id="email"
-              type="email"
-              required
-              autoComplete="username"
-              className="auth-input px-4"
-              placeholder="name@company.com"
-              value={form.email}
-              onChange={set("email")}
-            />
-          </Field>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field id="city" error={fieldErrors.city} label="City">
-            <input
-              id="city"
-              className="auth-input px-4"
-              placeholder="Kanpur"
-              value={form.city}
-              onChange={set("city")}
-            />
-          </Field>
-          <Field
-            id="businessType"
-            error={fieldErrors.businessType}
-            label="Aap kaun hain?"
-          >
-            <select
-              id="businessType"
-              className="auth-input px-4"
-              value={form.businessType}
-              onChange={set("businessType")}
-            >
-              {TYPES.map((t) => (
-                <option key={t.value} value={t.value}>
-                  {t.label}
-                </option>
-              ))}
-            </select>
-          </Field>
-        </div>
-        <Field id="country" error={fieldErrors.country} label="Country (isi currency mein price aur payment)">
-          <select id="country" className="auth-input px-4" value={form.country} onChange={set("country")}>
-            {COUNTRY_OPTIONS.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
-          </select>
+            type="email"
+            required
+            autoComplete="username"
+            className="auth-input px-4"
+            placeholder="name@company.com"
+            value={form.email}
+            onChange={set("email")}
+          />
         </Field>
         <Field id="password" error={fieldErrors.password} label="Password">
           <div className="relative">
@@ -246,7 +189,7 @@ export default function SignupPage() {
               required
               autoComplete="new-password"
               className="auth-input px-4 pr-12"
-              placeholder="8+ characters, 1 capital, 1 number"
+              placeholder="8+ chars, 1 capital, 1 number"
               value={form.password}
               onChange={set("password")}
             />
@@ -262,27 +205,17 @@ export default function SignupPage() {
         </Field>
         <button type="submit" disabled={loading} className="auth-cta group">
           {loading && <Loader2 size={18} className="animate-spin" />}
-          {loading ? "Account ban raha hai…" : "Start free trial"}
+          {loading ? "Creating account…" : "Start free trial"}
           {!loading && <ArrowRight size={18} />}
         </button>
-        <p className="text-center text-xs text-slate-500">
-          Signup karke aap Visitsly ki Terms aur Privacy Policy se sehmat hain.
-        </p>
       </form>
-      <p className="mt-6 text-center text-sm text-slate-600">
-        Email verify karna zaroori hai. Pehle se account hai?{" "}
+      <p className="mt-4 text-center text-sm text-slate-600">
+        Already have an account?{" "}
         <Link
           to="/login"
           className="font-semibold text-lp-tealdark hover:text-lp-ink"
         >
           Login
-        </Link>{" "}
-        ·{" "}
-        <Link
-          to="/pricing"
-          className="font-semibold text-lp-tealdark hover:text-lp-ink"
-        >
-          Pricing
         </Link>
       </p>
     </div>

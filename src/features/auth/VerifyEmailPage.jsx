@@ -24,7 +24,7 @@ export default function VerifyEmailPage() {
     verifiedAlready
       ? {
           type: "success",
-          message: `Email verify ho gaya. Ab login karke apna ${trialDays}-day trial shuru karein.`,
+          message: `Email verified. Log in to start your ${trialDays}-day trial.`,
         }
       : null,
   );
@@ -46,7 +46,7 @@ export default function VerifyEmailPage() {
       .then((response) => {
         setState({
           type: "success",
-          message: response.message || "Email verify ho gaya. Ab login karein.",
+          message: response.message || "Email verified. You can log in now.",
         });
         navigate("/verify-email?verified=1", { replace: true });
       })
@@ -55,7 +55,7 @@ export default function VerifyEmailPage() {
           type: "error",
           message:
             err?.response?.data?.message ||
-            "Verification link invalid ya expire ho gayi hai. Naya link mangwayein.",
+            "This link is invalid or expired. Request a new one.",
         }),
       )
       .finally(() => setBusy(false));
@@ -73,14 +73,14 @@ export default function VerifyEmailPage() {
         type: "success",
         message:
           response.message ||
-          "Agar verification pending hai, naya link bhej diya jayega.",
+          "If verification is pending, a new link is on its way.",
       });
     } catch (err) {
       setState({
         type: "error",
         message:
           err?.response?.data?.message ||
-          "Verification email resend nahi ho paayi. Dobara try karein.",
+          "Could not resend the email. Try again.",
       });
     } finally {
       setResending(false);
@@ -98,20 +98,17 @@ export default function VerifyEmailPage() {
           <MailCheck size={24} />
         )}
       </div>
-      <p className="mt-5 text-xs font-bold uppercase tracking-[0.2em] text-lp-tealdark">
-        VISITSLY CRM
-      </p>
       <h1 className="mt-2 font-display text-3xl font-bold tracking-tight text-lp-ink sm:text-4xl">
         {busy
-          ? "Email verify ho raha hai…"
+          ? "Verifying your email…"
           : state?.type === "success" && verifiedAlready
             ? "Email verified"
-            : "Apna email verify karein"}
+            : "Verify your email"}
       </h1>
       <p className="mt-3 text-sm leading-6 text-ink-600">
         {verifiedAlready
-          ? `Aapka workspace ready hai. Login karte hi aapka ${trialDays}-day free trial start ho jayega.`
-          : `Account secure rakhne ke liye hum inbox verify karte hain. Verification complete hone ke baad hi workspace aur ${trialDays}-day free trial activate hoga.`}
+          ? `Your workspace is ready. Your ${trialDays}-day free trial starts when you log in.`
+          : `We sent a link to your inbox. Your ${trialDays}-day free trial starts after you verify.`}
       </p>
 
       {state && (
@@ -125,7 +122,7 @@ export default function VerifyEmailPage() {
 
       {verifiedAlready ? (
         <Link to="/login" className="auth-cta group mt-6">
-          Login karein <ArrowRight size={18} />
+          Log in <ArrowRight size={18} />
         </Link>
       ) : (
         <form className="mt-6 space-y-4" onSubmit={resend}>
@@ -158,15 +155,14 @@ export default function VerifyEmailPage() {
               <RefreshCw size={17} />
             )}
             {resending
-              ? "Link bheja ja raha hai…"
-              : "Verification link resend karein"}
+              ? "Sending…"
+              : "Resend link"}
           </button>
         </form>
       )}
 
       <p className="mt-6 text-center text-sm text-ink-500">
-        <ShieldCheck size={15} className="mr-1 inline" /> Email verify nahi hua?
-        Inbox ke Spam/Junk folder ko bhi check karein.
+        <ShieldCheck size={15} className="mr-1 inline" /> Didn’t get it? Check your spam folder.
       </p>
       <p className="mt-4 text-center text-sm text-ink-600">
         Already verified?{" "}

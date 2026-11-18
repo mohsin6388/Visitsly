@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useState } from 'react';
 import { CheckCheck, Check, Clock3, Download, FileText, MapPin, AlertCircle, Image as ImageIcon, Film, Mic, Loader2 } from 'lucide-react';
 import { conversationApi } from '../../api/conversationApi.js';
 import { Formatted } from '../../components/WhatsAppPreview.jsx';
+import { showSendError } from '../../components/ui/index.jsx';
 
 // Small in-memory cache so scrolling back up doesn't re-download photos.
 const blobCache = new Map();
@@ -58,7 +59,7 @@ async function downloadFile(conversationId, message) {
     a.click();
     a.remove();
   } catch {
-    window.alert('File download nahi ho paayi. WhatsApp files ~30 din tak hi available rehti hain.');
+    window.alert('Could not download. WhatsApp files are available for about 30 days.');
   }
 }
 
@@ -77,7 +78,7 @@ function MediaBlock({ conversationId, message, onOpenImage }) {
           </button>
         ) : (
           <div className="flex h-40 w-[240px] items-center justify-center rounded-xl bg-black/5 text-xs opacity-70">
-            {state === 'error' ? <span className="flex items-center gap-1"><AlertCircle size={14} /> Photo available nahi</span> : <span className="flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> <ImageIcon size={14} /> Photo load ho rahi hai…</span>}
+            {state === 'error' ? <span className="flex items-center gap-1"><AlertCircle size={14} /> Photo unavailable</span> : <span className="flex items-center gap-1"><Loader2 size={14} className="animate-spin" /> <ImageIcon size={14} /> Loading photo…</span>}
           </div>
         )}
         <button type="button" onClick={() => downloadFile(conversationId, message)} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold opacity-75 hover:opacity-100"><Download size={12} /> Download</button>
@@ -87,7 +88,7 @@ function MediaBlock({ conversationId, message, onOpenImage }) {
   if (message.type === 'video') {
     return (
       <div ref={ref} className="mb-1">
-        {url ? <video src={url} controls preload="metadata" className="max-h-72 w-full max-w-[300px] rounded-xl bg-black" /> : <div className="flex h-36 w-[240px] items-center justify-center rounded-xl bg-black/10 text-xs opacity-70">{state === 'error' ? 'Video available nahi' : <><Film size={14} className="mr-1" /> Video load ho raha hai…</>}</div>}
+        {url ? <video src={url} controls preload="metadata" className="max-h-72 w-full max-w-[300px] rounded-xl bg-black" /> : <div className="flex h-36 w-[240px] items-center justify-center rounded-xl bg-black/10 text-xs opacity-70">{state === 'error' ? 'Video unavailable' : <><Film size={14} className="mr-1" /> Loading video…</>}</div>}
         <button type="button" onClick={() => downloadFile(conversationId, message)} className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold opacity-75 hover:opacity-100"><Download size={12} /> Download</button>
       </div>
     );
@@ -95,7 +96,7 @@ function MediaBlock({ conversationId, message, onOpenImage }) {
   if (message.type === 'audio') {
     return (
       <div ref={ref} className="mb-1 min-w-[220px]">
-        {url ? <audio src={url} controls preload="metadata" className="w-full" /> : <div className="flex items-center gap-1 text-xs opacity-70"><Mic size={14} /> {state === 'error' ? 'Voice note available nahi' : 'Voice note load ho raha hai…'}</div>}
+        {url ? <audio src={url} controls preload="metadata" className="w-full" /> : <div className="flex items-center gap-1 text-xs opacity-70"><Mic size={14} /> {state === 'error' ? 'Voice note unavailable' : 'Loading voice note…'}</div>}
       </div>
     );
   }
@@ -105,7 +106,7 @@ function MediaBlock({ conversationId, message, onOpenImage }) {
     return (
       <button type="button" onClick={() => downloadFile(conversationId, message)} className="mb-1 flex w-full min-w-[220px] items-center gap-3 rounded-xl bg-black/5 px-3 py-2.5 text-left hover:bg-black/10 dark:bg-white/10">
         <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${isPdf ? 'bg-red-500 text-white' : 'bg-sky-500 text-white'}`}><FileText size={18} /></span>
-        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{name}</span><span className="text-[11px] opacity-70">{isPdf ? 'PDF' : 'File'}{message.media?.size ? ` · ${(message.media.size / 1024 / 1024).toFixed(1)} MB` : ''} · Download karne ke liye dabaiye</span></span>
+        <span className="min-w-0 flex-1"><span className="block truncate text-sm font-semibold">{name}</span><span className="text-[11px] opacity-70">{isPdf ? 'PDF' : 'File'}{message.media?.size ? ` · ${(message.media.size / 1024 / 1024).toFixed(1)} MB` : ''} · Tap to download</span></span>
         <Download size={16} className="shrink-0 opacity-70" />
       </button>
     );
@@ -114,7 +115,7 @@ function MediaBlock({ conversationId, message, onOpenImage }) {
     const href = `https://www.google.com/maps?q=${message.media.latitude},${message.media.longitude}`;
     return (
       <a href={href} target="_blank" rel="noreferrer" className="mb-1 flex items-center gap-2 rounded-xl bg-black/5 px-3 py-2.5 text-sm font-semibold hover:bg-black/10">
-        <MapPin size={16} /> {message.media.address || 'Location dekhein (Google Maps)'}
+        <MapPin size={16} /> {message.media.address || 'View location (Google Maps)'}
       </a>
     );
   }
@@ -137,7 +138,7 @@ function MessageBubble({ conversationId, message: m, onOpenImage }) {
   return (
     <div className={`flex ${fromCustomer ? 'justify-start' : 'justify-end'}`}>
       <div
-        className={`max-w-[82%] rounded-2xl px-3.5 py-2 text-sm shadow-sm sm:max-w-[70%] ${
+        className={`min-w-0 max-w-[82%] rounded-2xl px-3.5 py-2 text-sm shadow-sm [overflow-wrap:anywhere] sm:max-w-[70%] ${
           fromCustomer
             ? 'rounded-tl-sm bg-white text-ink-900 dark:bg-ink-800 dark:text-white'
             : m.sender === 'ai'
@@ -149,11 +150,17 @@ function MessageBubble({ conversationId, message: m, onOpenImage }) {
         {text && <p className="whitespace-pre-wrap break-words leading-relaxed"><Formatted text={text} /></p>}
         <div className="mt-1 flex items-center justify-end gap-1 text-[10px] opacity-70">
           {m.sender === 'ai' && <span>AI ·</span>}
-          {m.sender === 'broker' && <span>Aap ·</span>}
+          {m.sender === 'broker' && <span>You ·</span>}
           {new Date(m.timestamp || m.createdAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
           {!fromCustomer && <StatusTick status={m.status} />}
         </div>
-        {m.status === 'failed' && m.errorMessage && <p className="mt-1 text-[11px] text-red-600 dark:text-red-300">Deliver nahi hua: {m.errorMessage}</p>}
+        {m.status === 'failed' && (
+          <div className="mt-1 flex justify-end">
+            <button type="button" onClick={() => showSendError(m.errorMessage || 'WhatsApp did not deliver this message.', m.errorCode)} className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-600 ring-1 ring-inset ring-red-200 hover:bg-red-100 dark:bg-red-950/50 dark:text-red-300 dark:ring-red-900" title="See why it failed">
+              <AlertCircle size={12} /> Not delivered
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

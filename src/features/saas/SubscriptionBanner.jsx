@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Clock, Eye, X } from 'lucide-react';
+import { AlertTriangle, Eye, X } from 'lucide-react';
 import { useAuthStore, useOrgRole } from '../../store/authStore.js';
 import { hardNavigate } from '../../lib/saas.jsx';
 
@@ -32,39 +32,32 @@ export default function SubscriptionBanner() {
   if (user?.mustChangePassword && !support) {
     banners.push(
       <div key="pw" className="flex flex-wrap items-center justify-between gap-2 bg-sky-700 px-4 py-2 text-sm text-white">
-        <span>Aap temporary password se login hain. Apna password badal lijiye.</span>
-        <Link to="/profile" className="rounded-md bg-white/15 px-3 py-1 font-semibold hover:bg-white/25">Password badlein</Link>
+        <span>You signed in with a temporary password. Please change it.</span>
+        <Link to="/profile" className="rounded-md bg-white/15 px-3 py-1 font-semibold hover:bg-white/25">Change password</Link>
       </div>,
     );
   }
   if (support) {
     banners.push(
       <div key="imp" className="flex flex-wrap items-center justify-between gap-2 bg-violet-700 px-4 py-2 text-sm text-white">
-        <span className="flex items-center gap-2"><Eye size={16} /> Visitsly support mode: <strong>{support.orgName || org?.name}</strong> ka account (60 min). Har change unke data mein hoga.</span>
+        <span className="flex items-center gap-2"><Eye size={16} /> Visitsly support mode: <strong>{support.orgName || org?.name}</strong> (60 min). Changes apply to their data.</span>
         <button onClick={exitSupport} className="rounded-md bg-white/15 px-3 py-1 font-semibold hover:bg-white/25">Exit</button>
       </div>,
     );
   }
   const sub = org?.subscription;
-  const billingLink = role === 'owner' ? <Link to="/billing" className="rounded-md bg-white/20 px-3 py-1 font-semibold hover:bg-white/30">Plan choose karein</Link> : <span className="text-xs opacity-90">Company owner se kahiye</span>;
+  const billingLink = role === 'owner' ? <Link to="/billing" className="rounded-md bg-white/20 px-3 py-1 font-semibold hover:bg-white/30">Choose plan</Link> : <span className="text-xs opacity-90">Ask the account owner</span>;
   if (sub && !sub.active) {
     banners.push(
       <div key="inactive" className="flex flex-wrap items-center justify-between gap-2 bg-red-600 px-4 py-2 text-sm text-white">
-        <span className="flex items-center gap-2"><AlertTriangle size={16} /> {sub.reason} Abhi aap sirf data dekh aur export kar sakte hain.</span>
+        <span className="flex items-center gap-2"><AlertTriangle size={16} /> {sub.reason} Your account is read-only for now.</span>
         {billingLink}
-      </div>,
-    );
-  } else if (org?.status === 'trialing' && sub?.daysLeft <= 7) {
-    banners.push(
-      <div key="trial" className="flex flex-wrap items-center justify-between gap-2 bg-amber-500 px-4 py-2 text-sm text-amber-950">
-        <span className="flex items-center gap-2"><Clock size={16} /> Free trial ke {sub.daysLeft} din baaki hain.</span>
-        {role === 'owner' && <Link to="/billing" className="rounded-md bg-amber-950/10 px-3 py-1 font-semibold hover:bg-amber-950/20">Plan choose karein</Link>}
       </div>,
     );
   } else if (org?.status === 'past_due') {
     banners.push(
       <div key="due" className="flex flex-wrap items-center justify-between gap-2 bg-amber-500 px-4 py-2 text-sm text-amber-950">
-        <span className="flex items-center gap-2"><AlertTriangle size={16} /> Pichhla payment fail hua. {sub?.daysLeft} din mein update karein, warna account read-only ho jayega.</span>
+        <span className="flex items-center gap-2"><AlertTriangle size={16} /> Last payment failed. Update within {sub?.daysLeft} days to avoid read-only mode.</span>
         {role === 'owner' && <Link to="/billing" className="rounded-md bg-amber-950/10 px-3 py-1 font-semibold hover:bg-amber-950/20">Billing</Link>}
       </div>,
     );
