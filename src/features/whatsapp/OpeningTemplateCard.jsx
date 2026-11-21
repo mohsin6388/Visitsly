@@ -52,7 +52,10 @@ export default function OpeningTemplateCard({ canManage }) {
       const list = res?.data?.templates || [];
       setTemplates(list);
       setSelected(res?.data?.selected || null);
-      const current = list.find((t) => t.isSelected);
+      const current =
+        list.find((t) => t.isSelected) ||
+        list.find((t) => t.status === "APPROVED" && t.eligibleForOpening) ||
+        null;
       setPick(current ? keyOf(current) : "");
       const initial = {};
       (current?.variables || []).forEach((v) => {
@@ -148,6 +151,12 @@ export default function OpeningTemplateCard({ canManage }) {
           <p className="text-xs text-ink-500">
             First message sent to a new lead. Only approved templates from your
             own WhatsApp Business Account can be used.
+          </p>
+          <p className="mt-1 text-xs text-ink-400">
+            WhatsApp rule: a business can start a chat only with an approved
+            template. This one is used automatically for every new lead (upload,
+            website, ads). Campaigns use the template picked inside the campaign.
+            Each client chooses their own.
           </p>
         </div>
         <button

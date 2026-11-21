@@ -1,14 +1,17 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Loader2, Send, Phone, CheckCircle2, XCircle, Clock3, PhoneOff, PhoneCall, MessageCircle, ArrowRight, RefreshCw, Settings2, CalendarCheck, KeyRound,
+  Loader2, Send, Phone, CheckCircle2, XCircle, Clock3, PhoneOff, PhoneCall, MessageCircle, ArrowRight, RefreshCw,
+  Settings2, PhoneIncoming, HelpCircle, ChevronDown, FileText, Trash2, CalendarCheck, Users,
 } from 'lucide-react';
 import { settingsApi } from '../../api/settingsApi.js';
 import { whatsappApi } from '../../api/whatsappApi.js';
 import { meetingApi } from '../../api/meetingApi.js';
 import { voiceApi } from '../../api/saasApi.js';
-import { PageTitle, Toggle, errText, CopyBox } from '../../lib/saas.jsx';
-import { toast, showDialog, Skeleton } from '../../components/ui/index.jsx';
+import UpgradeCard from '../saas/UpgradeCard.jsx';
+import LeadCallingPanel from './LeadCallingPanel.jsx';
+import { Toggle, errText, showUpgrade } from '../../lib/saas.jsx';
+import { toast, showDialog, Skeleton, confirmDialog, ErrorInfo, Modal } from '../../components/ui/index.jsx';
 import { getSocket } from '../../lib/socket.js';
 import { useAuthStore } from '../../store/authStore.js';
 
@@ -18,151 +21,242 @@ const CALL_FAIL = ['no-answer', 'busy', 'failed', 'canceled', 'cancelled', 'erro
 
 const BADGE = {
   confirmed: ['Confirmed', 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300', CheckCircle2],
-  declined: ['Nahi aa rahe', 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300', XCircle],
-  pending: ['Jawab ka wait', 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', Clock3],
+  declined: ['Not coming', 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300', XCircle],
+  pending: ['Awaiting reply', 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300', Clock3],
+};
+const CALL_BADGE = {
+  answered: ['Answered', 'bg-sky-50 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300', PhoneIncoming],
+  missed: ['Missed', 'bg-red-50 text-red-700 dark:bg-red-900/30 dark:text-red-300', PhoneOff],
+  in_progress: ['In progress', 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300', Phone],
+};
+const OUTCOME = {
+  confirmed: ['Confirmed', 'text-green-700', CheckCircle2],
+  declined: ['Not coming', 'text-red-600', XCircle],
+  unclear: ['Unclear', 'text-amber-700', HelpCircle],
+};
+const RESULT = {
+  reschedule: 'Rescheduled',
+  follow_up: 'Follow up later',
+  callback_later: 'Busy — AI will call again',
+  not_interested: 'Not interested',
 };
 
-function Stat({ icon: Icon, label, value, tone, hint }) {
+const money = (v, currency = 'INR') => {
+  if (v == null) return '—';
+  try { return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', { style: 'currency', currency, maximumFractionDigits: 2 }).format(v); } catch { return `${currency} ${v}`; }
+};
+const when = (d) => (d ? new Date(d).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '');
+const dur = (s) => (s ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}` : '—');
+
+function MiniStat({ label, value, hint }) {
   return (
-    <div className="rounded-xl border border-ink-100 bg-white p-3.5 dark:border-ink-800 dark:bg-ink-900">
-      <div className="flex items-center gap-2"><span className={`flex h-8 w-8 items-center justify-center rounded-lg ${tone}`}><Icon size={16} /></span><p className="text-xs font-medium text-ink-500">{label}</p></div>
-      <p className="mt-2 font-display text-2xl font-bold tabular-nums text-ink-900 dark:text-white">{value ?? <Skeleton className="h-7 w-10" />}</p>
-      {hint && <p className="mt-0.5 text-[11px] text-ink-400">{hint}</p>}
+    <div className="min-w-0 px-4 py-3">
+      <p className="text-[11px] font-medium text-ink-500">{label}</p>
+      {value == null ? <Skeleton className="mt-1 h-6 w-10" /> : <p className="font-display text-xl font-bold tabular-nums text-ink-900 dark:text-white">{value}</p>}
+      {hint && <p className="truncate text-[11px] text-ink-400">{hint}</p>}
     </div>
   );
 }
 
-function Step({ n, title, children, active }) {
+/** India DND (TRAI) check before every AI sales call. */
+function DndSettings({ dnd, saveDnd }) {
+  const [url, setUrl] = useState(dnd?.apiUrl || '');
+  const [key, setKey] = useState('');
+  const [header, setHeader] = useState(dnd?.apiKeyHeader || 'Authorization');
+  useEffect(() => { setUrl(dnd?.apiUrl || ''); setHeader(dnd?.apiKeyHeader || 'Authorization'); }, [dnd?.apiUrl, dnd?.apiKeyHeader]);
+  const saveFields = () => {
+    if (url && !/^https:\/\//i.test(url)) { toast.error('The DND API URL must start with https://'); return; }
+    if (url && !url.includes('{phone}')) { toast.error('Put {phone} in the URL where the mobile number goes'); return; }
+    saveDnd({ apiUrl: url.trim(), apiKeyHeader: header.trim() || 'Authorization', ...(key.trim() ? { apiKey: key.trim() } : {}) }).then(() => setKey(''));
+  };
   return (
-    <div className={`flex gap-3 rounded-xl p-3 ${active ? 'bg-brand-50 dark:bg-brand-950/30' : ''}`}>
-      <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${active ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-500 dark:bg-ink-800'}`}>{n}</span>
-      <div><p className="text-sm font-semibold text-ink-900 dark:text-white">{title}</p><p className="mt-0.5 text-xs leading-5 text-ink-500 dark:text-ink-400">{children}</p></div>
-    </div>
-  );
-}
-
-/** Per-company AI calling (Bolna) setup with a test call. */
-function VoiceSetup({ voice, onSaved }) {
-  const user = useAuthStore((s) => s.user);
-  const [form, setForm] = useState({ apiKey: '', agentId: voice?.agentId || '', fromNumber: voice?.fromNumber || '' });
-  const [editing, setEditing] = useState(!(voice?.apiKeySet && voice?.agentId));
-  const [busy, setBusy] = useState('');
-  const [testPhone, setTestPhone] = useState(user?.phone || '');
-  useEffect(() => { setForm((f) => ({ ...f, agentId: voice?.agentId || '', fromNumber: voice?.fromNumber || '' })); setEditing(!(voice?.apiKeySet && voice?.agentId)); }, [voice?.agentId, voice?.fromNumber, voice?.apiKeySet]);
-  const ready = Boolean(voice?.enabled && voice?.apiKeySet && voice?.agentId);
-
-  const save = async (e) => {
-    e.preventDefault();
-    if (!voice?.apiKeySet && !form.apiKey.trim()) { toast.error('Bolna API key daalein'); return; }
-    if (!form.agentId.trim()) { toast.error('Agent ID daalein'); return; }
-    setBusy('save');
-    try {
-      await voiceApi.update({ enabled: true, agentId: form.agentId.trim(), fromNumber: form.fromNumber.trim(), ...(form.apiKey.trim() ? { apiKey: form.apiKey.trim() } : {}) });
-      setForm((f) => ({ ...f, apiKey: '' }));
-      setEditing(false);
-      toast.success('AI calling connect ho gaya. Ab ek test call karke dekhein.');
-      onSaved?.();
-    } catch (err) {
-      showDialog({ title: 'AI calling save nahi hua', message: errText(err) });
-    } finally { setBusy(''); }
-  };
-  const test = async () => {
-    if (String(testPhone).replace(/\D/g, '').length < 10) { toast.error('Apna 10 digit mobile number daalein'); return; }
-    setBusy('test');
-    try {
-      const res = await voiceApi.testCall(testPhone);
-      showDialog({ tone: 'success', title: 'Test call lag rahi hai 📞', message: `${res.message}\n\nAgar call nahi aaye to Bolna dashboard mein agent ka phone number aur balance check karein.` });
-    } catch (err) {
-      showDialog({ title: 'Test call nahi lagi', message: errText(err) });
-    } finally { setBusy(''); }
-  };
-  const disable = async () => {
-    if (!window.confirm('AI calling band karein?')) return;
-    try { await voiceApi.update({ enabled: false }); toast.success('AI calling band'); onSaved?.(); } catch (err) { toast.error(errText(err)); }
-  };
-
-  return (
-    <section className="card space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-900 dark:text-white"><PhoneCall size={16} className="text-brand-600" /> AI calling (aapki company ke liye)</h2>
-        {ready ? <span className="rounded-full bg-green-100 px-2.5 py-1 text-xs font-semibold text-green-700">Connected</span> : <span className="rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Set nahi hai</span>}
-      </div>
-      {ready && !editing ? (
-        <div className="space-y-3">
-          <p className="text-sm text-ink-600 dark:text-ink-300">Agent: <code className="rounded bg-ink-100 px-1.5 py-0.5 text-xs dark:bg-ink-800">{voice.agentId}</code>{voice.fromNumber ? <> · Number: <b>{voice.fromNumber}</b></> : null} · Is mahine: <b>{voice.minutesThisMonth || 0} min</b></p>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Test call is number par
-              <input className="input-field mt-1 !w-48" inputMode="tel" placeholder="98XXXXXXXX" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
-            </label>
-            <button type="button" className="btn-primary gap-2" onClick={test} disabled={busy === 'test'}>{busy === 'test' ? <Loader2 size={15} className="animate-spin" /> : <Phone size={15} />} Test call karein</button>
-            <button type="button" className="btn-secondary" onClick={() => setEditing(true)}>Badlein</button>
-            <button type="button" className="text-xs font-semibold text-red-600" onClick={disable}>Band karein</button>
-          </div>
-          {voice.webhookUrl && <CopyBox label="Bolna agent ke webhook mein ye URL daalein (call ka result yahan aayega)" value={voice.webhookUrl} />}
+    <div className="space-y-2 border-t border-ink-100 pt-3 dark:border-ink-800">
+      <Toggle checked={Boolean(dnd?.enabled)} onChange={(v) => saveDnd({ enabled: v })} label="Skip DND numbers (India)" help="Before every AI sales call to an Indian number, the number is checked with your DND (TRAI NCPR) check service. DND numbers are not called and show 'DND number' in the list. Visit confirmation calls (the customer booked the visit) are not checked." />
+      {dnd?.enabled && (
+        <div className="grid gap-2 sm:grid-cols-[1fr_180px_160px_auto] sm:items-end">
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">DND check API URL
+            <input className="input-field mt-1 !py-2" placeholder="https://your-dnd-provider.com/check?number={phone}" value={url} onChange={(e) => setUrl(e.target.value)} />
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">API key {dnd?.apiKeySet && <span className="font-normal text-green-700">(saved)</span>}
+            <input className="input-field mt-1 !py-2" type="password" placeholder={dnd?.apiKeySet ? '•••••• (leave blank to keep)' : 'Your API key'} value={key} onChange={(e) => setKey(e.target.value)} />
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Key header
+            <input className="input-field mt-1 !py-2" placeholder="Authorization" value={header} onChange={(e) => setHeader(e.target.value)} />
+          </label>
+          <button type="button" className="btn-secondary !py-2 text-sm" onClick={saveFields}>Save</button>
+          <p className="text-[11px] text-ink-400 sm:col-span-4">{'{phone}'} is replaced with the 10-digit number. If the check fails, the call is not placed (safer), and the reason shows in the call list.</p>
         </div>
-      ) : (
-        <form onSubmit={save} className="space-y-3">
-          <ol className="list-decimal space-y-1 pl-5 text-xs leading-5 text-ink-600 dark:text-ink-300">
-            <li><a href="https://platform.bolna.ai" target="_blank" rel="noreferrer" className="font-semibold text-brand-600 underline">Bolna</a> par account banayein aur ek Hindi/Hinglish voice agent banayein.</li>
-            <li>Agent ke "extraction" mein <code>visit_confirmed</code> (yes/no) aur <code>visit_date</code>, <code>visit_time</code> jodein.</li>
-            <li>Developers section se API key aur agent ID neeche paste karein.</li>
-          </ol>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <label className="text-sm font-medium text-ink-800 dark:text-ink-100">API key<input className="input-field mt-1.5" type="password" autoComplete="new-password" placeholder={voice?.apiKeySet ? 'Purani key rakhne ke liye khali chhodein' : 'bn-…'} value={form.apiKey} onChange={(e) => setForm({ ...form, apiKey: e.target.value })} /></label>
-            <label className="text-sm font-medium text-ink-800 dark:text-ink-100">Agent ID<input className="input-field mt-1.5" value={form.agentId} onChange={(e) => setForm({ ...form, agentId: e.target.value })} /></label>
-            <label className="text-sm font-medium text-ink-800 dark:text-ink-100">Call kis number se (optional)<input className="input-field mt-1.5" placeholder="+91…" value={form.fromNumber} onChange={(e) => setForm({ ...form, fromNumber: e.target.value })} /></label>
-          </div>
-          <div className="flex gap-2">
-            <button className="btn-primary gap-2" disabled={busy === 'save'}>{busy === 'save' ? <Loader2 size={15} className="animate-spin" /> : <KeyRound size={15} />} Save & connect</button>
-            {ready && <button type="button" className="btn-secondary" onClick={() => setEditing(false)}>Cancel</button>}
-          </div>
-        </form>
       )}
+    </div>
+  );
+}
+
+/** Collapsible settings: voice, pricing, usage, test call, timing and template. */
+function SettingsPanel({ open, cfg, voice, aiOn, save, usable, pickTemplate, testPhone, setTestPhone, testKind, setTestKind, onTest, testing, dnd, saveDnd }) {
+  if (!open) return null;
+  const p = voice?.pricing;
+  const sel = 'input-field mt-1 !py-2';
+  return (
+    <section className="card space-y-4 !p-4">
+      <div className="grid gap-2 sm:grid-cols-3">
+        <div className="rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60"><p className="text-[11px] text-ink-500">Voice</p><p className="text-sm font-semibold text-ink-900 dark:text-white">{voice ? (voice.available ? voice.languageLabel : 'Coming soon') : '…'}</p></div>
+        <div className="rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60"><p className="text-[11px] text-ink-500">Price</p><p className="text-sm font-semibold text-ink-900 dark:text-white">{p ? `${money(p.perMinute, p.currency)}/min` : '…'}{p?.taxRate ? <span className="text-[11px] font-normal text-ink-400"> + {Math.round(p.taxRate * 100)}% tax</span> : null}</p></div>
+        <div className="rounded-lg bg-ink-50 px-3 py-2 dark:bg-ink-800/60"><p className="text-[11px] text-ink-500">This month</p><p className="text-sm font-semibold text-ink-900 dark:text-white">{voice ? `${voice.minutesThisMonth || 0} min · ${money(voice.costThisMonth ?? 0, p?.currency)}` : '…'}</p>{voice?.planAllows && <p className="text-[11px] text-ink-400">{(voice.includedMinutes || 0) + (voice.prepaidMinutes || 0)} min included · extra minutes billed per minute</p>}</div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {aiOn ? <>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call after booking
+            <select className={sel} value={cfg.callDelayMinutes ?? 1} onChange={(e) => save({ callDelayMinutes: Number(e.target.value) })}>{[1, 5, 15, 30, 60, 120].map((m) => <option key={m} value={m}>{m === 1 ? 'Instantly' : m < 60 ? `${m} min` : `${m / 60} hr`}</option>)}</select>
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Retry if missed
+            <select className={sel} value={cfg.callRetries ?? 0} onChange={(e) => save({ callRetries: Number(e.target.value) })}>{[0, 1, 2].map((m) => <option key={m} value={m}>{m === 0 ? 'No — send WhatsApp' : `${m}x (after 1 hr)`}</option>)}</select>
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call from
+            <select className={sel} value={cfg.callStartHour ?? 10} onChange={(e) => save({ callStartHour: Number(e.target.value) })}>{[8, 9, 10, 11, 12].map((h) => <option key={h} value={h}>{h}:00</option>)}</select>
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call until
+            <select className={sel} value={cfg.callEndHour ?? 19} onChange={(e) => save({ callEndHour: Number(e.target.value) })}>{[17, 18, 19, 20, 21].map((h) => <option key={h} value={h}>{h}:00</option>)}</select>
+          </label>
+          <div className="sm:col-span-2 lg:col-span-4">
+            <Toggle checked={cfg.reminderCall !== false} onChange={(v) => save({ reminderCall: v })} label="Reminder call on the visit day" help="On the day of a confirmed visit, the AI calls to remind the customer (at least 1 hour before the visit, in calling hours)." />
+          </div>
+        </> : (
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">WhatsApp reminder before visit
+            <select className={sel} value={cfg.hoursBefore} onChange={(e) => save({ hoursBefore: Number(e.target.value) })}>{[3, 6, 12, 24, 48].map((h) => <option key={h} value={h}>{h} hours</option>)}</select>
+          </label>
+        )}
+      </div>
+      <div className="flex flex-wrap items-end gap-3 border-t border-ink-100 pt-3 dark:border-ink-800">
+        <label className="min-w-[240px] flex-1 text-xs font-semibold text-ink-600 dark:text-ink-300">WhatsApp template (outside 24h window)
+          <select className={sel} value={cfg.templateName ? `${cfg.templateName}::${cfg.templateLanguage}` : ''} onChange={(e) => pickTemplate(e.target.value)}>
+            <option value="">None</option>
+            {usable.map((t) => <option key={`${t.name}::${t.language}`} value={`${t.name}::${t.language}`}>{t.name} · {t.language}</option>)}
+          </select>
+        </label>
+        <Link to="/whatsapp/templates" className="pb-2 text-xs font-semibold text-brand-600 hover:underline">New template</Link>
+        {aiOn && voice?.available && <>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Test call
+            <input className="input-field mt-1 !w-40 !py-2" inputMode="tel" placeholder="98XXXXXXXX" value={testPhone} onChange={(e) => setTestPhone(e.target.value)} />
+          </label>
+          <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call type
+            <select className="input-field mt-1 !w-48 !py-2" value={testKind} onChange={(e) => setTestKind(e.target.value)}>
+              <option value="lead">Lead call (like the chat)</option>
+              <option value="visit">Visit confirmation</option>
+            </select>
+          </label>
+          <button type="button" className="btn-secondary gap-2 !py-2 text-sm" onClick={onTest} disabled={testing}>{testing ? <Loader2 size={15} className="animate-spin" /> : <Phone size={15} />} Call me</button>
+        </>}
+      </div>
+      {aiOn && <p className="text-[11px] text-ink-400">Calling hours above are India time and apply to Indian numbers. UAE (+971) numbers have a separate calling process with Gulf-time hours and English / Arabic calls — currently switched off.</p>}
+      {aiOn && <DndSettings dnd={dnd} saveDnd={saveDnd} />}
+      {voice && !voice.available && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">AI calling is not active on your account yet. Visits are confirmed on WhatsApp.</p>}
     </section>
   );
 }
 
+/** One call row; full transcript/summary opens in a popup. */
+function CallRow({ c, busy, onRun, onOpen, onDelete }) {
+  const b = CALL_BADGE[c.status] || CALL_BADGE.in_progress; const Icon = b[2];
+  const o = c.outcome ? OUTCOME[c.outcome] : null; const OIcon = o?.[2];
+  const canRetry = c.status === 'missed' && c.meetingId && ['scheduled', 'rescheduled'].includes(c.meetingStatus);
+  return (
+    <li className="flex items-center justify-between gap-3 px-4 py-2.5 text-sm">
+      <div className="min-w-0">
+        <p className="truncate font-medium text-ink-900 dark:text-white">{c.lead.name} <span className="font-normal text-ink-400">{c.lead.phone}</span></p>
+        <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-ink-400">{when(c.at)}</span>
+          <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 font-semibold ${b[1]}`}><Icon size={10} />{b[0]}</span>
+          {o && <span className={`inline-flex items-center gap-1 font-semibold ${o[1]}`}><OIcon size={11} />{o[0]}</span>}
+          {c.kind === 'reminder' && <span className="rounded-full bg-violet-50 px-1.5 py-0.5 font-semibold text-violet-700">Visit-day reminder</span>}
+          {c.confirmedByCall && c.outcome === 'confirmed' && <span className="rounded-full bg-green-50 px-1.5 py-0.5 font-semibold text-green-700">Visit confirmed by call</span>}
+          {c.status === 'answered' && <span className="text-ink-400">{dur(c.durationSec)}</span>}
+          {c.whatsappFallback && <span className="font-semibold text-emerald-700">WhatsApp sent</span>}
+          {c.result && RESULT[c.result] && <span className="text-ink-500">{RESULT[c.result]}</span>}
+          <ErrorInfo message={c.error} title="Call error" />
+        </p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {(c.summary || c.transcript?.length > 1 || c.recordingUrl) && <button type="button" onClick={() => onOpen(c)} title="View call" aria-label="View call details" className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 hover:text-brand-700 dark:hover:bg-ink-800"><FileText size={15} /></button>}
+        {c.status !== 'in_progress' && <button type="button" onClick={() => onDelete(c)} title="Delete from history" aria-label="Delete call from history" className="rounded-lg p-1.5 text-ink-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40"><Trash2 size={15} /></button>}
+        {canRetry && <>
+          <button type="button" disabled={Boolean(busy)} onClick={() => onRun('call', c.meetingId)} title="Call again" className="rounded-lg border border-ink-200 p-1.5 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300">{busy === `call:${c.meetingId}` ? <Loader2 size={14} className="animate-spin" /> : <PhoneCall size={14} />}</button>
+          <button type="button" disabled={Boolean(busy)} onClick={() => onRun('wa', c.meetingId)} title="Send WhatsApp" className="rounded-lg border border-ink-200 p-1.5 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300">{busy === `wa:${c.meetingId}` ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}</button>
+        </>}
+      </div>
+    </li>
+  );
+}
+
 export default function VisitConfirmationPage() {
+  const user = useAuthStore((s) => s.user);
   const [cfg, setCfg] = useState(null);
   const [templates, setTemplates] = useState([]);
-  const [visits, setVisits] = useState(null);
+  const [section, setSection] = useState('visits'); // visits | leads
   const [voice, setVoice] = useState(null);
   const [stats, setStats] = useState(null);
+  const [calls, setCalls] = useState(null);
+  const [callFilter, setCallFilter] = useState('all');
   const [days, setDays] = useState(30);
   const [busy, setBusy] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testPhone, setTestPhone] = useState(user?.phone || '');
+  const [testKind, setTestKind] = useState('lead');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openCall, setOpenCall] = useState(null);
+  const [dnd, setDnd] = useState(null);
 
-  const loadVisits = useCallback(() => meetingApi.list({ when: 'upcoming', limit: 100 }).then((r) => setVisits((r.data.meetings || []).filter((m) => ['scheduled', 'rescheduled'].includes(m.status)))).catch((e) => { setVisits([]); toast.error(errText(e)); }), []);
-  const loadVoice = useCallback(() => voiceApi.settings().then((r) => setVoice(r.data.voice)).catch(() => setVoice({})), []);
+  const loadVoice = useCallback(() => voiceApi.settings().then((r) => setVoice(r.data.voice)).catch(() => setVoice({ available: false })), []);
   const loadStats = useCallback(() => meetingApi.confirmationStats(days).then((r) => setStats(r.data.stats)).catch(() => setStats(null)), [days]);
+  const loadCalls = useCallback(() => voiceApi.history({ section: 'visits', days, result: callFilter }).then((r) => setCalls(r.data)).catch(() => setCalls({ summary: {}, items: [] })), [days, callFilter]);
+  const refreshAll = useCallback(() => { loadStats(); loadCalls(); loadVoice(); }, [loadStats, loadCalls, loadVoice]);
 
   useEffect(() => {
     settingsApi.get()
-      .then((r) => setCfg({ enabled: false, hoursBefore: 24, templateName: '', templateLanguage: '', templateVariableCount: 0, callEnabled: false, callAfterHours: 3, mode: 'call_first', callDelayMinutes: 30, callStartHour: 10, callEndHour: 19, callRetries: 0, ...(r.data.settings.visitConfirm || {}) }))
-      .catch((e) => showDialog({ title: 'Settings load nahi hui', message: errText(e) }));
+      .then((r) => {
+        setCfg({ hoursBefore: 24, templateName: '', templateLanguage: '', templateVariableCount: 0, callEnabled: true, callDelayMinutes: 1, callStartHour: 10, callEndHour: 19, callRetries: 0, reminderCall: true, ...(r.data.settings.visitConfirm || {}) });
+        setDnd(r.data.settings.calling?.dnd || { enabled: false });
+      })
+      .catch((e) => showDialog({ title: 'Could not load settings', message: errText(e) }));
     whatsappApi.templates().then((r) => setTemplates(r.data?.templates || [])).catch(() => {});
-    loadVisits(); loadVoice();
-  }, [loadVisits, loadVoice]);
+    loadVoice();
+  }, [loadVoice]);
   useEffect(() => { loadStats(); }, [loadStats]);
+  useEffect(() => { loadCalls(); }, [loadCalls]);
 
-  // Live: call result / WhatsApp reply updates the list without refresh.
+  // Live: call results and WhatsApp replies update without refresh.
   useEffect(() => {
     const socket = getSocket();
-    const onUpdate = () => { loadVisits(); loadStats(); };
+    const onUpdate = () => { loadStats(); loadCalls(); loadVoice(); };
     socket.on('meeting:updated', onUpdate);
     socket.on('meeting:created', onUpdate);
-    return () => { socket.off('meeting:updated', onUpdate); socket.off('meeting:created', onUpdate); };
-  }, [loadVisits, loadStats]);
+    socket.on('call:updated', onUpdate);
+    return () => { socket.off('meeting:updated', onUpdate); socket.off('meeting:created', onUpdate); socket.off('call:updated', onUpdate); };
+  }, [loadStats, loadCalls, loadVoice]);
 
   const usable = useMemo(() => templates.filter((t) => varCount(bodyOf(t)) <= 4 && !(t.components || []).some((c) => String(c.type).toUpperCase() === 'HEADER' && c.format && String(c.format).toUpperCase() !== 'TEXT')), [templates]);
-  const voiceReady = Boolean(voice?.enabled && voice?.apiKeySet && voice?.agentId);
 
   const save = async (patch) => {
-    const next = { ...cfg, ...patch };
-    setCfg(next);
+    setCfg((c) => ({ ...c, ...patch }));
     try {
       await settingsApi.update({ visitConfirm: patch });
-      toast.success('Save ho gaya');
+      toast.success('Saved');
     } catch (e) { toast.error(errText(e)); }
+  };
+
+  const saveDnd = async (patch) => {
+    setDnd((d) => ({ ...(d || {}), ...patch, ...(patch.apiKey ? { apiKeySet: true, apiKey: '' } : {}) }));
+    try {
+      const r = await settingsApi.update({ calling: { dnd: patch } });
+      setDnd(r.data.settings.calling?.dnd || { enabled: false });
+      toast.success('Saved');
+    } catch (e) { toast.error(errText(e)); }
+  };
+
+  const toggleAi = async (v) => {
+    if (v && voice && voice.planAllows === false) { showUpgrade('AI calling is available on paid plans. Upgrade to turn on instant AI confirmation calls.'); return; }
+    if (v && voice && !voice.available) { toast.error('AI calling is not active on your account yet'); return; }
+    if (!v && !(await confirmDialog({ title: 'Turn off AI calls?', message: 'Visits will be confirmed on WhatsApp (YES / NO) only. You can turn it back on anytime.', confirmLabel: 'Turn off' }))) return;
+    save({ callEnabled: v, enabled: true, mode: 'call_first' });
   };
 
   const pickTemplate = (key) => {
@@ -170,135 +264,127 @@ export default function VisitConfirmationPage() {
     save({ templateName: t?.name || '', templateLanguage: t?.language || '', templateVariableCount: t ? varCount(bodyOf(t)) : 0 });
   };
 
+  const testCall = async () => {
+    if (String(testPhone).replace(/\D/g, '').length < 10) { toast.error('Enter a 10-digit mobile number'); return; }
+    setTesting(true);
+    try {
+      const res = await voiceApi.testCall(testPhone, testKind);
+      showDialog({ tone: 'success', title: 'Test call on its way 📞', message: res.message });
+    } catch (err) {
+      showDialog({ title: 'Test call failed', message: errText(err) });
+    } finally { setTesting(false); }
+  };
+
   const run = async (kind, id) => {
     setBusy(`${kind}:${id}`);
     try {
       const res = kind === 'wa' ? await meetingApi.sendConfirmation(id) : kind === 'call' ? await meetingApi.callConfirmation(id) : await meetingApi.markConfirmation(id, kind === 'yes' ? 'confirmed' : 'declined');
-      toast.success(res.message || 'Ho gaya');
+      toast.success(res.message || 'Done');
     } catch (e) {
-      showDialog({ title: kind === 'call' ? 'Call nahi lagi' : 'Nahi ho paaya', message: errText(e) });
-    } finally { setBusy(''); loadVisits(); loadStats(); }
+      showDialog({ title: kind === 'call' ? 'Call failed' : 'Action failed', message: errText(e) });
+    } finally { setBusy(''); refreshAll(); }
   };
 
-  if (!cfg) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-ink-400" /></div>;
-  const callFirst = cfg.mode !== 'whatsapp_first';
+  const deleteCall = async (c) => {
+    if (!(await confirmDialog({ title: 'Delete this call?', message: 'It is removed from the call history. The site visit and its confirmation stay.', confirmLabel: 'Delete', danger: true }))) return;
+    try { await voiceApi.deleteCall(c.id); setCalls((d) => ({ ...d, items: d.items.filter((x) => x.id !== c.id) })); toast.success('Call deleted'); } catch (e) { toast.error(errText(e)); }
+  };
+  const clearCalls = async () => {
+    if (!(await confirmDialog({ title: 'Clear visit call history?', message: 'All finished confirmation and reminder calls are removed from this list. Site visits are not changed.', confirmLabel: 'Clear history', danger: true }))) return;
+    try { const r = await voiceApi.clearHistory('visits'); toast.success(r.message); loadCalls(); loadStats(); } catch (e) { toast.error(errText(e)); }
+  };
+
+  if (!cfg) return <div className="mx-auto max-w-6xl space-y-4"><Skeleton className="h-14" /><Skeleton className="h-20" /><div className="grid gap-4 lg:grid-cols-2"><Skeleton className="h-72" /><Skeleton className="h-72" /></div></div>;
+  const aiOn = cfg.callEnabled !== false && voice?.available !== false && voice?.planAllows !== false;
+  const sum = calls?.summary;
+  const tabs = [['all', 'All', sum?.total], ['answered', 'Answered', sum?.answered], ['missed', 'Missed', sum?.missed]];
 
   return (
-    <div className="mx-auto max-w-5xl space-y-5 pb-8">
-      <PageTitle title="Visit confirmation" subtitle="Site visit book hote hi AI call karke confirm karta hai. Call na uthe to WhatsApp par confirm hota hai." action={<button type="button" onClick={() => { loadVisits(); loadStats(); }} className="btn-secondary gap-2 !py-2 text-sm"><RefreshCw size={15} /> Refresh</button>} />
-
-      <section>
-        <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-ink-900 dark:text-white">Pichhle {days} din</h2>
-          <select className="input-field !w-auto !py-1.5 text-xs" value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 30, 90].map((d) => <option key={d} value={d}>{d} din</option>)}</select>
+    <div className="mx-auto max-w-6xl space-y-4 pb-6">
+      {/* Header + settings toggle on top */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 font-display text-2xl font-bold text-ink-900 dark:text-white"><PhoneCall size={22} className="text-brand-600" /> AI calling</h1>
+          <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">{aiOn ? 'Booked visits get an instant AI confirmation call.' : 'Calls are off — visits confirm on WhatsApp.'}</p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-          <Stat icon={CalendarCheck} label="Visits" value={stats?.visits} tone="bg-violet-50 text-violet-700" hint={stats ? `${stats.upcoming} aane wali` : ''} />
-          <Stat icon={PhoneCall} label="Confirmation calls" value={stats?.callsPlaced} tone="bg-sky-50 text-sky-700" hint={stats ? `${stats.callsAnswered} uthi · ${stats.callsNotAnswered} nahi uthi` : ''} />
-          <Stat icon={MessageCircle} label="WhatsApp confirmation" value={stats?.whatsappSent} tone="bg-emerald-50 text-emerald-700" hint={stats ? `${stats.whatsappFallbacks} call na uthne par gaye` : ''} />
-          <Stat icon={CheckCircle2} label="Confirmed" value={stats?.confirmed} tone="bg-green-50 text-green-700" hint={stats ? `${stats.confirmedByCall} call se · ${stats.confirmedByWhatsapp} WhatsApp se · ${stats.declined} mana` : ''} />
+        <div className="flex items-center gap-2">
+          <div className="w-36 rounded-xl border border-ink-200 bg-white px-3 py-2 dark:border-ink-700 dark:bg-ink-900"><Toggle checked={cfg.callEnabled !== false} onChange={toggleAi} label={cfg.callEnabled !== false ? 'On' : 'Off'} disabled={voice && !voice.available && cfg.callEnabled === false} /></div>
+          <button type="button" onClick={() => setSettingsOpen((v) => !v)} aria-expanded={settingsOpen} className={`btn-secondary gap-2 !py-2 text-sm ${settingsOpen ? '!border-brand-400 !text-brand-700' : ''}`}><Settings2 size={15} /> Settings <ChevronDown size={14} className={`transition ${settingsOpen ? 'rotate-180' : ''}`} /></button>
+          <button type="button" onClick={refreshAll} className="btn-secondary !px-2.5 !py-2" aria-label="Refresh"><RefreshCw size={15} /></button>
         </div>
-      </section>
+      </div>
 
-      <section className="card space-y-4">
-        <h2 className="flex items-center gap-2 text-sm font-semibold text-ink-900 dark:text-white"><Settings2 size={16} className="text-brand-600" /> Confirmation kaise ho?</h2>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {[['call_first', 'Pehle AI call, phir WhatsApp', 'Recommended — call na uthe to WhatsApp par confirm'], ['whatsapp_first', 'Pehle WhatsApp, phir AI call', 'Jawab na aaye to AI call']].map(([key, title, help]) => (
-            <button key={key} type="button" onClick={() => save({ mode: key })} className={`rounded-xl border p-3 text-left ${cfg.mode === key || (!cfg.mode && key === 'call_first') ? 'border-brand-500 bg-brand-50 ring-2 ring-brand-500/15 dark:bg-brand-900/20' : 'border-ink-200 dark:border-ink-700'}`}>
-              <p className="text-sm font-semibold text-ink-900 dark:text-white">{title}</p><p className="mt-0.5 text-xs text-ink-500">{help}</p>
-            </button>
-          ))}
-        </div>
+      {voice?.planAllows === false && (
+        <UpgradeCard
+          feature="aiCalling"
+          title="AI calling is a paid-plan feature"
+          body="On a paid plan, every booked site visit gets an instant AI confirmation call (Hindi / English), with WhatsApp as the fallback. Growth includes 30 minutes a month and Builder Pro 100; extra minutes are billed per minute. Until then, visits are confirmed on WhatsApp."
+        />
+      )}
 
-        {callFirst ? (
-          <div className="grid gap-1 sm:grid-cols-3">
-            <Step n={1} title="Visit book hui" active>AI chat mein visit book hote hi owner ko WhatsApp alert.</Step>
-            <Step n={2} title={`${cfg.callDelayMinutes ?? 30} min baad AI call`} active={cfg.callEnabled && voiceReady}>Calling hours ({cfg.callStartHour ?? 10}–{cfg.callEndHour ?? 19} baje) mein.</Step>
-            <Step n={3} title="Call na uthe → WhatsApp" active={cfg.callEnabled}>"Humne call kiya tha…" message, YES/NO reply se confirm.</Step>
-          </div>
-        ) : (
-          <div className="grid gap-1 sm:grid-cols-3">
-            <Step n={1} title={`${cfg.hoursBefore} ghante pehle WhatsApp`} active={cfg.enabled}>"Kya aap aa rahe hain? YES/NO"</Step>
-            <Step n={2} title={`${cfg.callAfterHours} ghante jawab nahi → AI call`} active={cfg.callEnabled && voiceReady}>Calling hours mein hi.</Step>
-            <Step n={3} title="Site visits page par status" active>Confirmed / Nahi aa rahe</Step>
-          </div>
-        )}
+      <SettingsPanel open={settingsOpen} cfg={cfg} voice={voice} aiOn={aiOn} save={save} usable={usable} pickTemplate={pickTemplate} testPhone={testPhone} setTestPhone={setTestPhone} testKind={testKind} setTestKind={setTestKind} onTest={testCall} testing={testing} dnd={dnd} saveDnd={saveDnd} />
 
-        <div className="space-y-3 border-t border-ink-100 pt-4 dark:border-ink-800">
-          <Toggle checked={!!cfg.callEnabled} onChange={(v) => { if (v && !voiceReady) { toast.error('Pehle neeche AI calling connect karein'); return; } save({ callEnabled: v }); }} label="AI call se confirm karein" help={voiceReady ? 'Aapka Bolna agent call karega' : 'Neeche AI calling set karein'} />
-          <Toggle checked={!!cfg.enabled} onChange={(v) => save({ enabled: v })} label="WhatsApp se confirm karein" help="Call na uthe ya call band ho to WhatsApp par confirmation" />
-          <div className="grid gap-3 sm:grid-cols-4">
-            {callFirst ? <>
-              <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Booking ke kitni der baad call
-                <select className="input-field mt-1" value={cfg.callDelayMinutes ?? 30} onChange={(e) => save({ callDelayMinutes: Number(e.target.value) })}>{[5, 15, 30, 60, 120, 240].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : `${m / 60} ghante`}</option>)}</select>
-              </label>
-              <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call na uthe to dobara call
-                <select className="input-field mt-1" value={cfg.callRetries ?? 0} onChange={(e) => save({ callRetries: Number(e.target.value) })}>{[0, 1, 2].map((m) => <option key={m} value={m}>{m === 0 ? 'Nahi, seedha WhatsApp' : `${m} baar (1 ghante baad)`}</option>)}</select>
-              </label>
-            </> : <>
-              <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">WhatsApp kitne ghante pehle
-                <select className="input-field mt-1" value={cfg.hoursBefore} onChange={(e) => save({ hoursBefore: Number(e.target.value) })}>{[3, 6, 12, 24, 48].map((h) => <option key={h} value={h}>{h} ghante</option>)}</select>
-              </label>
-              <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Jawab ka wait (phir call)
-                <select className="input-field mt-1" value={cfg.callAfterHours} onChange={(e) => save({ callAfterHours: Number(e.target.value) })}>{[1, 2, 3, 6, 12].map((h) => <option key={h} value={h}>{h} ghante</option>)}</select>
-              </label>
-            </>}
-            <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call kab se
-              <select className="input-field mt-1" value={cfg.callStartHour ?? 10} onChange={(e) => save({ callStartHour: Number(e.target.value) })}>{[8, 9, 10, 11, 12].map((h) => <option key={h} value={h}>{h}:00</option>)}</select>
-            </label>
-            <label className="text-xs font-semibold text-ink-600 dark:text-ink-300">Call kab tak
-              <select className="input-field mt-1" value={cfg.callEndHour ?? 19} onChange={(e) => save({ callEndHour: Number(e.target.value) })}>{[17, 18, 19, 20, 21].map((h) => <option key={h} value={h}>{h}:00</option>)}</select>
-            </label>
-          </div>
-          <label className="block text-xs font-semibold text-ink-600 dark:text-ink-300">WhatsApp template (jab customer ne 24 ghante se message na kiya ho)
-            <select className="input-field mt-1 sm:max-w-md" value={cfg.templateName ? `${cfg.templateName}::${cfg.templateLanguage}` : ''} onChange={(e) => pickTemplate(e.target.value)}>
-              <option value="">Koi nahi</option>
-              {usable.map((t) => <option key={`${t.name}::${t.language}`} value={`${t.name}::${t.language}`}>{t.name} · {t.language}</option>)}
-            </select>
-            <span className="mt-1 block font-normal text-ink-400">Variables: {'{{1}}'} naam · {'{{2}}'} project · {'{{3}}'} din · {'{{4}}'} time. <Link to="/whatsapp/templates" className="font-semibold text-brand-600 hover:underline">Naya template banayein</Link></span>
-          </label>
-        </div>
-      </section>
+      {/* Two boxes: calls after a visit is booked · AI calling for leads */}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {[
+          ['visits', 'Visit confirmation calls', 'Calls after a visit is booked in chat, and visit-day reminders', CalendarCheck, stats ? `${stats.callsPlaced ?? 0} calls · ${stats.confirmedByCall ?? 0} confirmed` : ''],
+          ['leads', 'AI calling leads', 'Call contacts from Upload Data with your script', Users, voice?.queue?.queued ? `${voice.queue.queued} in queue` : ''],
+        ].map(([key, title, sub, Icon, hint]) => (
+          <button key={key} type="button" onClick={() => setSection(key)} aria-pressed={section === key} className={`flex items-start gap-3 rounded-2xl border p-4 text-left transition ${section === key ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/15 dark:bg-brand-950/30' : 'border-ink-100 bg-white hover:border-ink-300 dark:border-ink-800 dark:bg-ink-900'}`}>
+            <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${section === key ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'}`}><Icon size={20} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block font-display text-base font-bold text-ink-900 dark:text-white">{title}</span>
+              <span className="mt-0.5 block text-xs text-ink-500">{sub}</span>
+              {hint && <span className="mt-1.5 block text-[11px] font-semibold text-brand-700 dark:text-brand-300">{hint}</span>}
+            </span>
+          </button>
+        ))}
+      </div>
 
-      {voice ? <VoiceSetup voice={voice} onSaved={loadVoice} /> : <Skeleton className="h-40 !rounded-xl" />}
+      {section === 'leads' ? (
+        <LeadCallingPanel voice={voice} days={days} onOpen={setOpenCall} onChanged={loadVoice} />
+      ) : (
+        <>
+          {/* Stats strip */}
+          <section className="card flex flex-wrap items-stretch !p-0">
+            <div className="grid flex-1 grid-cols-2 divide-ink-100 dark:divide-ink-800 sm:grid-cols-4 sm:divide-x">
+              <MiniStat label="Visits" value={stats?.visits} hint={stats ? `${stats.upcoming} upcoming` : ''} />
+              <MiniStat label="AI calls" value={stats?.callsPlaced} hint={stats ? `${stats.callsAnswered} answered · ${stats.callsMissed ?? stats.callsNotAnswered} missed` : ''} />
+              <MiniStat label="WhatsApp sent" value={stats?.whatsappSent} hint={stats ? `${stats.whatsappFallbacks} after missed call` : ''} />
+              <MiniStat label="Confirmed" value={stats?.confirmed} hint={stats ? `${stats.confirmedByCall} call · ${stats.confirmedByWhatsapp} WhatsApp · ${stats.declined} declined` : ''} />
+            </div>
+            <div className="flex items-center border-l border-ink-100 px-3 dark:border-ink-800">
+              <select aria-label="Period" className="input-field !w-auto !py-1.5 text-xs" value={days} onChange={(e) => setDays(Number(e.target.value))}>{[7, 30, 90].map((d) => <option key={d} value={d}>{d} days</option>)}</select>
+            </div>
+          </section>
 
-      <section className="card !p-0">
-        <div className="flex items-center justify-between px-5 pt-4">
-          <h2 className="text-sm font-semibold text-ink-900 dark:text-white">Aane wali visits</h2>
-          <Link to="/site-visits" className="inline-flex items-center gap-1 text-xs font-semibold text-brand-600">Site visits page <ArrowRight size={13} /></Link>
-        </div>
-        <ul className="mt-2 divide-y divide-ink-100 dark:divide-ink-800">
-          {visits === null ? [1, 2, 3].map((i) => <li key={i} className="px-5 py-3"><Skeleton className="h-10" /></li>) : visits.map((v) => {
-            const c = v.confirmation || {};
-            const b = BADGE[c.status];
-            const Icon = b?.[2];
-            const callStatus = String(c.callStatus || '').toLowerCase();
-            const callFailed = CALL_FAIL.includes(callStatus);
-            return (
-              <li key={v._id} className="flex flex-wrap items-center justify-between gap-3 px-5 py-3 text-sm">
-                <div className="min-w-0">
-                  <p className="font-medium text-ink-900 dark:text-white">{v.leadId?.name || 'Lead'} <span className="font-normal text-ink-400">{v.leadId?.phone}</span></p>
-                  <p className="text-xs text-ink-500">{v.preferredDate} · {v.preferredTime}{v.propertyId?.projectName ? ` · ${v.propertyId.projectName}` : ''}</p>
-                  <p className="mt-1 flex flex-wrap gap-1.5 text-[11px]">
-                    {c.calledAt && <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ${callFailed ? 'bg-red-50 text-red-700' : callStatus === 'completed' ? 'bg-sky-50 text-sky-700' : 'bg-ink-100 text-ink-600'}`}>{callFailed ? <PhoneOff size={11} /> : <Phone size={11} />}{callFailed ? 'Call nahi uthi' : callStatus === 'completed' ? 'Call hui' : 'Call lag rahi hai'}{c.callAttempts > 1 ? ` (${c.callAttempts}x)` : ''}</span>}
-                    {c.whatsappFallbackAt && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"><MessageCircle size={11} /> WhatsApp bheja</span>}
-                    {c.sentAt && !c.whatsappFallbackAt && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700"><MessageCircle size={11} /> WhatsApp gaya</span>}
-                    {c.confirmedVia && <span className="rounded-full bg-ink-100 px-2 py-0.5 font-semibold text-ink-600">via {c.confirmedVia === 'call' ? 'call' : c.confirmedVia === 'manual' ? 'aap' : 'WhatsApp'}</span>}
-                  </p>
-                  {c.error && <p className="mt-1 text-xs text-red-600">{c.error}</p>}
+          <section className="card flex min-w-0 flex-col !p-0">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ink-100 px-4 py-3 dark:border-ink-800">
+              <h2 className="text-sm font-semibold text-ink-900 dark:text-white">Calls after WhatsApp booking</h2>
+              <div className="flex items-center gap-2">
+                <div className="flex rounded-lg border border-ink-200 p-0.5 dark:border-ink-700">
+                  {tabs.map(([key, label, n]) => <button key={key} type="button" onClick={() => setCallFilter(key)} className={`rounded-md px-2.5 py-1 text-[11px] font-semibold ${callFilter === key ? 'bg-brand-600 text-white' : 'text-ink-600 dark:text-ink-300'}`}>{label}{n != null ? ` ${n}` : ''}</button>)}
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {b && <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold ${b[1]}`}><Icon size={13} />{b[0]}</span>}
-                  {voiceReady && <button type="button" disabled={Boolean(busy)} onClick={() => run('call', v._id)} className="btn-secondary inline-flex items-center gap-1.5 !py-1.5 text-xs">{busy === `call:${v._id}` ? <Loader2 size={13} className="animate-spin" /> : <PhoneCall size={13} />}AI call</button>}
-                  <button type="button" disabled={Boolean(busy)} onClick={() => run('wa', v._id)} className="btn-secondary inline-flex items-center gap-1.5 !py-1.5 text-xs">{busy === `wa:${v._id}` ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />}WhatsApp</button>
-                  {c.status !== 'confirmed' && <button type="button" disabled={Boolean(busy)} onClick={() => run('yes', v._id)} className="btn-secondary !py-1.5 text-xs text-green-700" title="Customer ne phone par confirm kiya">✓ Confirm</button>}
-                </div>
-              </li>
-            );
-          })}
-          {visits?.length === 0 && <li className="px-5 py-8 text-center text-sm text-ink-500">Koi aane wali visit nahi.</li>}
-        </ul>
-      </section>
+                {calls?.items?.length > 0 && <button type="button" onClick={clearCalls} className="inline-flex items-center gap-1 text-xs font-semibold text-red-600 hover:underline"><Trash2 size={12} /> Clear</button>}
+              </div>
+            </div>
+            <ul className="max-h-[520px] divide-y divide-ink-100 overflow-y-auto dark:divide-ink-800">
+              {calls === null ? [1, 2, 3, 4].map((i) => <li key={i} className="px-4 py-3"><Skeleton className="h-9" /></li>) : calls.items.map((c) => <CallRow key={c.id} c={c} busy={busy} onRun={run} onOpen={setOpenCall} onDelete={deleteCall} />)}
+              {calls && calls.items.length === 0 && <li className="px-4 py-10 text-center text-sm text-ink-400">{callFilter === 'all' ? 'No calls yet' : 'No calls in this filter'}</li>}
+            </ul>
+          </section>
+          <p className="text-[11px] text-ink-400">Upcoming visits are in <Link to="/site-visits" className="font-semibold text-brand-600 hover:underline">Site visits <ArrowRight size={11} className="inline" /></Link></p>
+        </>
+      )}
+
+      <Modal open={Boolean(openCall)} onClose={() => setOpenCall(null)} title={openCall ? `Call · ${openCall.lead?.name || ''}` : ''} size="max-w-lg">
+        {openCall && <div className="space-y-3 text-sm">
+          <p className="text-xs text-ink-500">{when(openCall.at)}{openCall.visitDate ? ` · Visit ${openCall.visitDate} ${openCall.visitTime || ''}` : ''}{openCall.project ? ` · ${openCall.project}` : ''}{openCall.status === 'answered' ? ` · ${dur(openCall.durationSec)} (${openCall.minutes || 1} min)` : ''}</p>
+          {openCall.summary && <p className="rounded-lg bg-ink-50 px-3 py-2 text-ink-700 dark:bg-ink-800/60 dark:text-ink-200">{openCall.summary}</p>}
+          {openCall.transcript?.length > 1 && <div className="max-h-72 space-y-1 overflow-y-auto rounded-lg border border-ink-100 p-3 text-xs dark:border-ink-800">{openCall.transcript.map((t, i) => <p key={i} className={t.role === 'agent' ? 'text-ink-700 dark:text-ink-200' : 'text-brand-700 dark:text-brand-300'}><span className="font-semibold">{t.role === 'agent' ? 'AI' : 'Customer'}:</span> {t.text}</p>)}</div>}
+          {openCall.recordingUrl && <a href={openCall.recordingUrl} target="_blank" rel="noreferrer" className="inline-block text-xs font-semibold text-brand-600 hover:underline">Play recording</a>}
+        </div>}
+      </Modal>
     </div>
   );
 }

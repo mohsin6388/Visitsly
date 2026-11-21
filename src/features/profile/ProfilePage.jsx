@@ -5,7 +5,7 @@ import { authApi } from '../../api/authApi.js';
 import { settingsApi } from '../../api/settingsApi.js';
 import { useAuthStore } from '../../store/authStore.js';
 
-/** Bilkul basic profile: company, phone, password. Baaki sab Settings me. */
+/** Basic profile: company, phone, password. Everything else is in Settings. */
 export default function ProfilePage() {
   const { setSession, accessToken } = useAuthStore();
   const [loading, setLoading] = useState(true);
@@ -22,7 +22,7 @@ export default function ProfilePage() {
         setPhone(me.data.user.phone || '');
         setCompanyName(st.data.settings.companyName || '');
       })
-      .catch((err) => setMsg({ ok: false, text: err?.response?.data?.message || 'Profile load nahi ho paayi' }))
+      .catch((err) => setMsg({ ok: false, text: err?.response?.data?.message || 'Could not load profile' }))
       .finally(() => setLoading(false));
   }, []);
 
@@ -33,9 +33,9 @@ export default function ProfilePage() {
     try {
       const [profileRes] = await Promise.all([authApi.updateProfile({ phone }), settingsApi.update({ companyName })]);
       setSession(profileRes.data.user, accessToken);
-      setMsg({ ok: true, text: 'Save ho gaya' });
+      setMsg({ ok: true, text: 'Saved' });
     } catch (err) {
-      setMsg({ ok: false, text: err?.response?.data?.message || 'Save nahi hua' });
+      setMsg({ ok: false, text: err?.response?.data?.message || 'Could not save' });
     } finally {
       setSaving(false);
     }
@@ -80,18 +80,18 @@ function ChangePasswordForm() {
       await authApi.changePassword(form);
       setForm({ currentPassword: '', newPassword: '' });
       if (user) setUser({ ...user, mustChangePassword: false });
-      setState({ busy: false, msg: { ok: true, text: 'Password badal gaya' } });
+      setState({ busy: false, msg: { ok: true, text: 'Password changed' } });
     } catch (err) {
       const d = err?.response?.data;
-      setState({ busy: false, msg: { ok: false, text: d?.details?.[0]?.message || d?.message || 'Password nahi badla' } });
+      setState({ busy: false, msg: { ok: false, text: d?.details?.[0]?.message || d?.message || 'Could not change password' } });
     }
   };
   return (
     <form onSubmit={submit} className="card space-y-3">
-      <h2 className="text-sm font-semibold text-ink-900 dark:text-white">Password badlein</h2>
-      {user?.mustChangePassword && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">Aap temporary password se login hain, naya password set kar lijiye.</p>}
-      <input type="password" autoComplete="current-password" className="input-field" placeholder="Purana password" required value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} />
-      <input type="password" autoComplete="new-password" className="input-field" placeholder="Naya password (8+, 1 capital, 1 number)" required value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} />
+      <h2 className="text-sm font-semibold text-ink-900 dark:text-white">Change password</h2>
+      {user?.mustChangePassword && <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/20 dark:text-amber-200">You signed in with a temporary password. Please set a new one.</p>}
+      <input type="password" autoComplete="current-password" className="input-field" placeholder="Current password" required value={form.currentPassword} onChange={(e) => setForm({ ...form, currentPassword: e.target.value })} />
+      <input type="password" autoComplete="new-password" className="input-field" placeholder="New password (8+, 1 capital, 1 number)" required value={form.newPassword} onChange={(e) => setForm({ ...form, newPassword: e.target.value })} />
       <div className="flex items-center gap-3">
         <button className="btn-primary" disabled={state.busy}>Change password</button>
         {state.msg && <span className={`text-sm ${state.msg.ok ? 'text-green-700' : 'text-red-600'}`}>{state.msg.text}</span>}

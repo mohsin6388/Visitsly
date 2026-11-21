@@ -47,9 +47,9 @@ export default function PropertyFormModal({ property, onClose, onSaved }) {
     event.target.value = '';
     if (!files.length) return;
     const tooLarge = files.find((file) => file.size > 25 * 1024 * 1024);
-    if (tooLarge) { setError(`${tooLarge.name} 25 MB se badi hai. Har image 25 MB se chhoti honi chahiye.`); return; }
+    if (tooLarge) { setError(`${tooLarge.name} is over 25 MB. Each image must be under 25 MB.`); return; }
     const invalid = files.find((file) => !file.type.startsWith('image/'));
-    if (invalid) { setError(`${invalid.name} valid image nahi hai.`); return; }
+    if (invalid) { setError(`${invalid.name} is not a valid image.`); return; }
     setError(''); setUploadingImages(true);
     try {
       const urls = [];
@@ -59,7 +59,7 @@ export default function PropertyFormModal({ property, onClose, onSaved }) {
       }
       setForm((current) => ({ ...current, imagesText: [...new Set([...current.imagesText.split(',').map((item) => item.trim()).filter(Boolean), ...urls])].join(', ') }));
     } catch (err) {
-      setError(err?.response?.data?.message || 'Property image upload fail ho gaya. Cloudinary configuration check karein.');
+      setError(err?.response?.data?.message || 'Image upload failed.');
     } finally { setUploadingImages(false); }
   };
 

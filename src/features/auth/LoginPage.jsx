@@ -7,29 +7,19 @@ import {
   Mail,
   Loader2,
   ArrowRight,
-  CalendarCheck,
 } from "lucide-react";
 import { authApi } from "../../api/authApi.js";
 import { useAuthStore } from "../../store/authStore.js";
-import { AuthHeading, AuthTabs, SocialButtons } from "./AuthParts.jsx";
+import { AuthHeading, AuthTabs } from "./AuthParts.jsx";
 
 export default function LoginPage() {
   const [form, setForm] = useState({ email: "", password: "" });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [notice, setNotice] = useState("");
   const setSession = useAuthStore((s) => s.setSession);
   const navigate = useNavigate();
   const location = useLocation();
-
-  // Social login is not wired to the backend yet — keep the buttons honest.
-  const handleSocial = (provider) => {
-    setError("");
-    setNotice(
-      `${provider === "google" ? "Google" : "Microsoft"} login jaldi aa raha hai. Abhi email aur password se login karein.`,
-    );
-  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -42,6 +32,12 @@ export default function LoginPage() {
         password: form.password,
       });
       setSession(data.user, data.accessToken, data.org);
+
+      // First login of a new workspace → onboarding wizard (name, company, country, city, type).
+      if (data.org && data.org.profileDone === false) {
+        navigate("/onboarding", { replace: true });
+        return;
+      }
 
       // New workspaces complete WhatsApp-first onboarding. Connected users
       // return to the page they originally requested.
@@ -57,7 +53,7 @@ export default function LoginPage() {
     } catch (err) {
       setError(
         err?.response?.data?.message ||
-          "Login nahi ho paya. Email aur password check karke dobara try karein.",
+          "Could not log in. Check your email and password.",
       );
     } finally {
       setLoading(false);
@@ -66,15 +62,13 @@ export default function LoginPage() {
 
   return (
     <div className="login-form-shell w-full">
-      <AuthHeading bold="Welcome back." light="Log in.">
-        Pick up your leads, WhatsApp chats and site visits where you left off.
-      </AuthHeading>
+      <AuthHeading bold="Welcome back" />
 
-      <div className="mt-7">
+      <div className="mt-4">
         <AuthTabs active="login" />
       </div>
 
-      <form className="space-y-5" onSubmit={handleSubmit}>
+      <form className="space-y-4" onSubmit={handleSubmit}>
         {error && (
           <div
             role="alert"
@@ -85,16 +79,6 @@ export default function LoginPage() {
             <span>{error}</span>
           </div>
         )}
-        {notice && !error && (
-          <div
-            role="status"
-            aria-live="polite"
-            className="rounded-xl border border-lp-teal/30 bg-lp-teal/10 px-4 py-3.5 text-sm leading-5 text-lp-tealdark"
-          >
-            {notice}
-          </div>
-        )}
-
         <div>
           <label
             htmlFor="email"
@@ -187,35 +171,15 @@ export default function LoginPage() {
         </button>
       </form>
 
-      {/* <div className="my-6 flex items-center gap-4 text-sm text-slate-500">
-        <span className="h-px flex-1 bg-slate-300/70" />
-        or continue with
-        <span className="h-px flex-1 bg-slate-300/70" />
-      </div> */}
-
-      <SocialButtons onSelect={handleSocial} />
-
-      <Link
-        to="/signup"
-        className="group mt-6 flex items-center gap-4 rounded-2xl bg-lp-ink px-4 py-4 transition hover:bg-lp-deep"
-      >
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-lp-teal/15 text-lp-mint">
-          <CalendarCheck size={22} aria-hidden="true" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[15px] font-bold text-white">
-            Start your 7-day free trial
-          </span>
-          <span className="block text-sm text-white/60">
-            Explore all premium features. No credit card required.
-          </span>
-        </span>
-        <ArrowRight
-          size={18}
-          className="shrink-0 text-lp-mint transition group-hover:translate-x-0.5"
-          aria-hidden="true"
-        />
-      </Link>
+      <p className="mt-6 text-center text-sm text-slate-600">
+        New to Visitsly?{" "}
+        <Link
+          to="/signup"
+          className="font-semibold text-lp-tealdark hover:text-lp-ink hover:underline"
+        >
+          Start your free trial
+        </Link>
+      </p>
     </div>
   );
 }

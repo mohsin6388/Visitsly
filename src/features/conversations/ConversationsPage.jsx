@@ -9,20 +9,22 @@ import { propertyApi } from '../../api/propertyApi.js';
 import { getSocket } from '../../lib/socket.js';
 import { errText } from '../../lib/saas.jsx';
 import { useOrgRole } from '../../store/authStore.js';
-import { toast, showDialog, SkeletonRows, EmptyState, Modal } from '../../components/ui/index.jsx';
+import { toast, showDialog, SkeletonRows, EmptyState, Modal, confirmDialog } from '../../components/ui/index.jsx';
 import MessageBubble from './MessageBubble.jsx';
+import { WindowClosedBar, WindowOpenHint, TemplateSendModal } from '../../components/WhatsAppWindow.jsx';
+import AiLimitBar from '../saas/AiLimitBar.jsx';
 import InsightsPanel, { leadTypeOf } from './InsightsPanel.jsx';
 
 const FILTERS = [
-  { key: '', label: 'Saari chats' },
+  { key: '', label: 'All chats' },
   { key: 'unread', label: 'Unread messages' },
-  { key: 'needs_reply', label: 'Reply baaki hai' },
-  { key: 'direct', label: 'Direct WhatsApp chat' },
+  { key: 'needs_reply', label: 'Needs reply' },
+  { key: 'direct', label: 'Direct WhatsApp' },
   { key: 'hot', label: 'Hot leads 🔥' },
   { key: 'warm', label: 'Warm leads' },
   { key: 'site_visit', label: 'Site visit' },
   { key: 'closed', label: 'Closed leads' },
-  { key: 'manual', label: 'AI band (aap reply kar rahe)' },
+  { key: 'manual', label: 'AI paused (you reply)' },
   { key: 'lost', label: 'Lost' },
 ];
 
@@ -34,16 +36,16 @@ function timeLabel(value) {
   const now = new Date();
   if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return 'Kal';
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
   return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
 }
 
 function dayLabel(value) {
   const d = new Date(value);
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return 'Aaj';
+  if (d.toDateString() === now.toDateString()) return 'Today';
   const y = new Date(now); y.setDate(now.getDate() - 1);
-  if (d.toDateString() === y.toDateString()) return 'Kal';
+  if (d.toDateString() === y.toDateString()) return 'Yesterday';
   return d.toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: d.getFullYear() !== now.getFullYear() ? 'numeric' : undefined });
 }
 
@@ -79,32 +81,32 @@ function PropertyMediaModal({ open, onClose, conversation, onSent }) {
     setBusy(`${p._id}:${kind}`);
     try {
       const r = await conversationApi.sendPropertyMedia(conversation._id, p._id, kind);
-      toast.success(r.message || 'Bhej diya');
+      toast.success(r.message || 'Sent');
       onSent?.(r.data?.messages || []);
       onClose();
     } catch (err) {
-      showDialog({ title: 'Nahi bheja ja saka', message: errText(err) });
+      showDialog({ title: 'Could not send', message: errText(err) });
     } finally {
       setBusy('');
     }
   };
   return (
-    <Modal open={open} onClose={onClose} title="Property ka brochure / photos bhejein">
+    <Modal open={open} onClose={onClose} title="Send brochure / photos">
       <div className="relative mb-3">
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-ink-400" />
-        <input autoFocus className="input-field !pl-9" placeholder="Project ka naam search karein" value={query} onChange={(e) => setQuery(e.target.value)} />
+        <input autoFocus className="input-field !pl-9" placeholder="Search project name" value={query} onChange={(e) => setQuery(e.target.value)} />
       </div>
-      {loading ? <SkeletonRows rows={4} /> : !sorted.length ? <p className="py-8 text-center text-sm text-ink-500">Koi property nahi mili. Properties page par project jodein.</p> : (
+      {loading ? <SkeletonRows rows={4} /> : !sorted.length ? <p className="py-8 text-center text-sm text-ink-500">No properties found. Add one on the Properties page.</p> : (
         <ul className="divide-y divide-ink-100 dark:divide-ink-800">
           {sorted.map((p) => (
             <li key={p._id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-ink-900 dark:text-white">{p.projectName}{recommended.includes(String(p._id)) && <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">AI ne suggest kiya</span>}</p>
+                <p className="truncate text-sm font-semibold text-ink-900 dark:text-white">{p.projectName}{recommended.includes(String(p._id)) && <span className="ml-1.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-bold text-emerald-700">AI pick</span>}</p>
                 <p className="text-xs text-ink-500">{[p.bhk && `${p.bhk} BHK`, p.location, p.city].filter(Boolean).join(' · ')}</p>
               </div>
               <div className="flex gap-1.5">
-                <button type="button" disabled={!!busy || !p.brochureUrl} title={p.brochureUrl ? '' : 'Brochure upload nahi hai'} onClick={() => send(p, 'brochure')} className="btn-secondary gap-1 !px-2.5 !py-1.5 text-xs disabled:opacity-40">{busy === `${p._id}:brochure` ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Brochure</button>
-                <button type="button" disabled={!!busy || !(p.images || []).length} title={(p.images || []).length ? '' : 'Photos upload nahi hain'} onClick={() => send(p, 'photos')} className="btn-secondary gap-1 !px-2.5 !py-1.5 text-xs disabled:opacity-40">{busy === `${p._id}:photos` ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />} Photos</button>
+                <button type="button" disabled={!!busy || !p.brochureUrl} title={p.brochureUrl ? '' : 'No brochure uploaded'} onClick={() => send(p, 'brochure')} className="btn-secondary gap-1 !px-2.5 !py-1.5 text-xs disabled:opacity-40">{busy === `${p._id}:brochure` ? <Loader2 size={13} className="animate-spin" /> : <FileText size={13} />} Brochure</button>
+                <button type="button" disabled={!!busy || !(p.images || []).length} title={(p.images || []).length ? '' : 'No photos uploaded'} onClick={() => send(p, 'photos')} className="btn-secondary gap-1 !px-2.5 !py-1.5 text-xs disabled:opacity-40">{busy === `${p._id}:photos` ? <Loader2 size={13} className="animate-spin" /> : <ImageIcon size={13} />} Photos</button>
               </div>
             </li>
           ))}
@@ -118,6 +120,7 @@ function PropertyMediaModal({ open, onClose, conversation, onSent }) {
 export default function ConversationsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
+  const [templateOpen, setTemplateOpen] = useState(false);
   const role = useOrgRole();
 
   // List
@@ -181,8 +184,8 @@ export default function ConversationsPage() {
       if (res.data.counts?.unread != null) setCounts((c) => ({ ...c, unread: res.data.counts.unread }));
     } catch (err) {
       if (reqId === listReqRef.current) {
-        setListError(errText(err, 'Chats load nahi hui'));
-        if (!append) toast.error(errText(err, 'Chats load nahi hui'));
+        setListError(errText(err, 'Could not load chats'));
+        if (!append) toast.error(errText(err, 'Could not load chats'));
       }
     } finally {
       if (reqId === listReqRef.current) { setListLoading(false); setLoadingMore(false); }
@@ -232,7 +235,7 @@ export default function ConversationsPage() {
         setCounts((c) => ({ ...c, unread: Math.max(0, (c.unread || 1) - 1) }));
       }
     } catch (err) {
-      showDialog({ title: 'Chat nahi khul paayi', message: errText(err), actionLabel: 'Dobara try karein', onAction: () => openConversation(id) });
+      showDialog({ title: 'Could not open chat', message: errText(err), actionLabel: 'Retry', onAction: () => openConversation(id) });
       setActiveId(null);
     } finally {
       setThreadLoading(false);
@@ -258,7 +261,7 @@ export default function ConversationsPage() {
           const res = await conversationApi.list({ leadId, limit: 1 });
           const match = res.data.conversations?.[0];
           if (match) await openConversation(match._id);
-          else toast.info('Is lead ki WhatsApp chat abhi shuru nahi hui.');
+          else toast.info('No WhatsApp chat with this lead yet.');
         }
       } finally {
         setSearchParams({}, { replace: true });
@@ -278,7 +281,7 @@ export default function ConversationsPage() {
       setActive((p) => (p ? { ...p, messages: [...(res.data.messages || []), ...p.messages], hasMoreMessages: res.data.hasMoreMessages } : p));
       requestAnimationFrame(() => { if (el) el.scrollTop = el.scrollHeight - prevHeight; });
     } catch (err) {
-      toast.error(errText(err, 'Purane messages load nahi hue'));
+      toast.error(errText(err, 'Could not load older messages'));
     } finally {
       setOlderLoading(false);
     }
@@ -360,13 +363,13 @@ export default function ConversationsPage() {
     if (code === 'WHATSAPP_24H_WINDOW_CLOSED') {
       showDialog({
         tone: 'warning',
-        title: '24 ghante wala WhatsApp window band hai',
-        message: 'WhatsApp ke rule ke hisaab se, customer ne pichhle 24 ghante mein message nahi kiya to seedha message nahi ja sakta.\n\nCampaign se ek approved template bhejiye — customer jaise hi reply karega, aap yahan se baat kar payenge.',
-        actionLabel: 'Template bhejein',
-        onAction: () => navigate('/outreach/whatsapp?new=1'),
+        title: 'WhatsApp 24-hour window is closed',
+        message: 'The customer has not messaged in the last 24 hours, so WhatsApp only allows an approved template.\n\nSend a template — once they reply, you can chat here again.',
+        actionLabel: 'Send template',
+        onAction: () => setTemplateOpen(true),
       });
     } else {
-      showDialog({ title: 'Message nahi gaya', message: errText(err) });
+      showDialog({ title: 'Message not sent', message: errText(err) });
     }
   };
 
@@ -389,7 +392,7 @@ export default function ConversationsPage() {
 
   const handleFile = async (file) => {
     if (!file || !activeId) return;
-    if (file.size > 100 * 1024 * 1024) { showDialog({ title: 'File bahut badi hai', message: 'WhatsApp par 100 MB tak ki file hi ja sakti hai (photo 5 MB, video 16 MB).' }); return; }
+    if (file.size > 100 * 1024 * 1024) { showDialog({ title: 'File too large', message: 'WhatsApp allows up to 100 MB (photos 5 MB, videos 16 MB).' }); return; }
     const caption = text.trim();
     setUpload({ name: file.name, progress: 0 });
     try {
@@ -397,7 +400,7 @@ export default function ConversationsPage() {
       if (caption) setText('');
       atBottomRef.current = true;
       if (res.data?.message) setActive((p) => (p ? { ...p, messages: mergeMessages(p.messages, [res.data.message]) } : p));
-      toast.success('File bhej di gayi');
+      toast.success('File sent');
     } catch (err) {
       sendFailed(err);
     } finally {
@@ -415,7 +418,7 @@ export default function ConversationsPage() {
     try {
       const res = active.conversation.status === 'manual' ? await conversationApi.resumeAI(activeId) : await conversationApi.takeover(activeId);
       updateConversation(res.data.conversation);
-      toast.success(res.message || 'Ho gaya');
+      toast.success(res.message || 'Done');
     } catch (err) {
       toast.error(errText(err));
     }
@@ -423,11 +426,11 @@ export default function ConversationsPage() {
 
   const handleClose = async () => {
     const closed = active.conversation.status === 'closed';
-    if (!closed && !window.confirm('Ye chat close karein? AI is customer ko reply nahi karega.')) return;
+    if (!closed && !(await confirmDialog({ title: 'Close this chat?', message: 'AI will stop replying to this customer.', confirmLabel: 'Close chat' }))) return;
     try {
       const res = closed ? await conversationApi.reopen(activeId) : await conversationApi.close(activeId);
       updateConversation(res.data.conversation);
-      toast.success(res.message || 'Ho gaya');
+      toast.success(res.message || 'Done');
     } catch (err) {
       toast.error(errText(err));
     }
@@ -454,7 +457,7 @@ export default function ConversationsPage() {
   return (
     <div className="flex h-[calc(100vh-8.5rem)] min-h-[520px] gap-4">
       {/* ---------- Left: list ---------- */}
-      <div className={`${showThreadOnMobile ? 'hidden lg:flex' : 'flex'} w-full flex-shrink-0 flex-col overflow-hidden rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900 lg:w-[340px]`}>
+      <div className={`${showThreadOnMobile ? 'hidden lg:flex' : 'flex'} w-full flex-shrink-0 flex-col overflow-hidden rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900 lg:w-[300px]`}>
         <div className="space-y-2 border-b border-ink-100 p-3 dark:border-ink-800">
           <div className="flex items-center justify-between">
             <h1 className="font-display text-lg font-bold text-ink-900 dark:text-white">AI Inbox</h1>
@@ -463,7 +466,7 @@ export default function ConversationsPage() {
           <div className="flex gap-2">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400" size={15} />
-              <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Naam, number ya message…" className="w-full rounded-lg border border-ink-200 py-2 pl-8 pr-7 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white" />
+              <input value={searchInput} onChange={(e) => setSearchInput(e.target.value)} placeholder="Name, number or message…" className="w-full rounded-lg border border-ink-200 py-2 pl-8 pr-7 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white" />
               {searchInput && <button type="button" onClick={() => setSearchInput('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400" aria-label="Clear search"><X size={14} /></button>}
             </div>
             <div className="relative" ref={filterRef}>
@@ -492,10 +495,10 @@ export default function ConversationsPage() {
 
         <div className="flex-1 overflow-y-auto" onScroll={onListScroll}>
           {listLoading && !conversations.length ? <SkeletonRows rows={8} /> : listError && !conversations.length ? (
-            <EmptyState icon={AlertTriangle} title="Chats load nahi hui" action={<button type="button" className="btn-secondary" onClick={() => fetchList()}>Dobara try karein</button>}>{listError}</EmptyState>
+            <EmptyState icon={AlertTriangle} title="Could not load chats" action={<button type="button" className="btn-secondary" onClick={() => fetchList()}>Retry</button>}>{listError}</EmptyState>
           ) : !conversations.length ? (
-            <EmptyState icon={MessagesSquare} title={filter || search ? 'Is filter mein koi chat nahi' : 'Abhi koi chat nahi'}>
-              {filter || search ? 'Filter hata kar dekhein.' : 'Jaise hi koi customer WhatsApp par reply karega ya campaign jayega, chat yahan dikhegi.'}
+            <EmptyState icon={MessagesSquare} title={filter || search ? 'No chats match' : 'No chats yet'}>
+              {filter || search ? 'Try clearing the filter.' : 'Chats appear here when customers reply on WhatsApp.'}
             </EmptyState>
           ) : conversations.map((c) => {
             const l = c.leadId || {};
@@ -511,7 +514,7 @@ export default function ConversationsPage() {
                   </span>
                   <span className="mt-0.5 flex items-center justify-between gap-2">
                     <span className={`truncate text-xs ${unread ? 'font-semibold text-ink-700 dark:text-ink-200' : 'text-ink-500 dark:text-ink-400'}`}>
-                      {c.lastMessageDirection === 'outbound' && <span className="text-ink-400">{c.lastMessageSender === 'ai' ? 'AI: ' : 'Aap: '}</span>}
+                      {c.lastMessageDirection === 'outbound' && <span className="text-ink-400">{c.lastMessageSender === 'ai' ? 'AI: ' : 'You: '}</span>}
                       {c.lastMessagePreview || l.phone}
                     </span>
                     {unread && <span className="shrink-0 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">{c.unreadCount}</span>}
@@ -519,7 +522,7 @@ export default function ConversationsPage() {
                   <span className="mt-1 flex flex-wrap items-center gap-1">
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${type.className}`}>{type.label}</span>
                     {l.source === 'whatsapp_inbound' && <span className="inline-flex items-center gap-0.5 rounded-full bg-emerald-50 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><MessageCircleMore size={10} /> Direct</span>}
-                    {c.status === 'manual' && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">AI band</span>}
+                    {c.status === 'manual' && <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">AI paused</span>}
                     {c.optedOut && <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">STOP</span>}
                     {c.aiLimit?.reached && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">AI limit</span>}
                   </span>
@@ -528,14 +531,14 @@ export default function ConversationsPage() {
             );
           })}
           {loadingMore && <div className="flex justify-center py-3 text-ink-400"><Loader2 size={18} className="animate-spin" /></div>}
-          {hasMore && !loadingMore && conversations.length > 0 && <button type="button" onClick={() => fetchList({ append: true })} className="w-full py-3 text-xs font-semibold text-brand-600">Aur chats dikhayein</button>}
+          {hasMore && !loadingMore && conversations.length > 0 && <button type="button" onClick={() => fetchList({ append: true })} className="w-full py-3 text-xs font-semibold text-brand-600">Load more</button>}
         </div>
       </div>
 
       {/* ---------- Middle: thread ---------- */}
       <div className={`${showThreadOnMobile && !showInfo ? 'flex' : 'hidden lg:flex'} min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-ink-100 bg-[#f4f1ec] dark:border-ink-800 dark:bg-ink-950`}>
         {!activeId ? (
-          <div className="flex flex-1 items-center justify-center p-6"><EmptyState icon={MessagesSquare} title="Ek chat chunein">Left side se kisi customer ki chat kholein.</EmptyState></div>
+          <div className="flex flex-1 items-center justify-center p-6"><EmptyState icon={MessagesSquare} title="Select a chat">Pick a chat from the list.</EmptyState></div>
         ) : threadLoading && !active ? (
           <div className="flex-1 bg-white dark:bg-ink-900"><SkeletonRows rows={7} /></div>
         ) : active && (
@@ -546,26 +549,26 @@ export default function ConversationsPage() {
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm font-bold text-emerald-700">{(lead.name || '?').charAt(0).toUpperCase()}</span>
                 <div className="min-w-0">
                   <p className="truncate font-semibold text-ink-900 dark:text-white">{lead.name || lead.phone}</p>
-                  <p className="truncate text-xs text-ink-500 dark:text-ink-400">{lead.phone} · {conv.status === 'manual' ? 'Aap reply kar rahe hain' : conv.status === 'closed' ? 'Chat closed' : conv.optedOut ? 'Customer ne STOP likha' : 'AI reply kar raha hai'}</p>
+                  <p className="truncate text-xs text-ink-500 dark:text-ink-400">{lead.phone} · {conv.status === 'manual' ? 'You are replying' : conv.status === 'closed' ? 'Chat closed' : conv.optedOut ? 'Opted out (STOP)' : 'AI is replying'}</p>
                 </div>
               </div>
               <div className="flex shrink-0 items-center gap-1.5">
-                <button type="button" onClick={toggleAI} className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${conv.status === 'manual' ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200'}`} title={conv.status === 'manual' ? 'AI ko wapas chalu karein' : 'AI rok kar khud baat karein'}>
+                <button type="button" onClick={toggleAI} className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-semibold ${conv.status === 'manual' ? 'bg-emerald-600 text-white hover:bg-emerald-700' : 'border border-ink-200 text-ink-700 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-200'}`} title={conv.status === 'manual' ? 'Turn AI back on' : 'Pause AI and reply yourself'}>
                   {conv.status === 'manual' ? <Bot size={14} /> : <UserCog size={14} />}
-                  <span className="hidden sm:inline">{conv.status === 'manual' ? 'AI chalu karein' : 'Khud baat karein'}</span>
+                  <span className="hidden sm:inline">{conv.status === 'manual' ? 'Resume AI' : 'Take over'}</span>
                 </button>
                 <button type="button" onClick={() => setShowInfo(true)} className="rounded-lg p-2 text-ink-500 hover:bg-ink-100 xl:hidden dark:hover:bg-ink-800" aria-label="Lead details"><Info size={16} /></button>
-                <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" title={conv.status === 'closed' ? 'Chat dobara kholein' : 'Chat close karein'}>{conv.status === 'closed' ? 'Reopen' : <X size={16} />}</button>
+                <button type="button" onClick={handleClose} className="rounded-lg px-2 py-1.5 text-xs font-semibold text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" title={conv.status === 'closed' ? 'Reopen chat' : 'Close chat'}>{conv.status === 'closed' ? 'Reopen' : <X size={16} />}</button>
               </div>
             </div>
 
             <div ref={scrollRef} onScroll={onThreadScroll} className="flex-1 space-y-2 overflow-y-auto px-3 py-4 sm:px-5">
               {active.hasMoreMessages && (
                 <div className="flex justify-center">
-                  <button type="button" onClick={loadOlder} disabled={olderLoading} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink-600 shadow-sm dark:bg-ink-800 dark:text-ink-200">{olderLoading ? <Loader2 size={13} className="inline animate-spin" /> : 'Purane messages dekhein'}</button>
+                  <button type="button" onClick={loadOlder} disabled={olderLoading} className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-ink-600 shadow-sm dark:bg-ink-800 dark:text-ink-200">{olderLoading ? <Loader2 size={13} className="inline animate-spin" /> : 'Load older messages'}</button>
                 </div>
               )}
-              {!active.messages.length && <p className="py-10 text-center text-sm text-ink-500">Abhi koi message nahi.</p>}
+              {!active.messages.length && <p className="py-10 text-center text-sm text-ink-500">No messages yet.</p>}
               {grouped.map((item) => (item.divider ? (
                 <div key={item.key} className="flex justify-center py-1"><span className="rounded-full bg-white/80 px-3 py-0.5 text-[11px] font-semibold text-ink-500 shadow-sm dark:bg-ink-800 dark:text-ink-300">{item.label}</span></div>
               ) : (
@@ -573,20 +576,19 @@ export default function ConversationsPage() {
               )))}
             </div>
 
-            {conv.aiLimit?.reached && (
-              <div className="flex flex-wrap items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-100">
-                <p className="flex items-start gap-2"><AlertTriangle size={16} className="mt-0.5 shrink-0" /><span><b>AI reply limit poori ({conv.aiLimit.replies}/{conv.aiLimit.limit}).</b> Ab aap khud reply karein ya plan upgrade karein.</span></p>
-                {role === 'owner' && <button type="button" onClick={() => navigate('/billing')} className="btn-primary whitespace-nowrap !py-1.5 text-xs">Upgrade</button>}
+            <AiLimitBar aiLimit={conv.aiLimit} />
+
+            {conv.aiSkipReason && !conv.aiLimit?.reached && conv.status !== 'manual' && conv.status !== 'closed' && !conv.optedOut && (
+              <div role="status" className="flex items-start gap-2 border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/10 dark:text-amber-200">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                <span><b>AI skipped the last reply:</b> {conv.aiSkipReason}</span>
               </div>
             )}
-
             {!windowOpen ? (
-              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-ink-100 bg-white px-4 py-3 text-sm dark:border-ink-800 dark:bg-ink-900">
-                <p className="flex items-start gap-2 text-ink-600 dark:text-ink-300"><Lock size={15} className="mt-0.5 shrink-0" /> Customer ne 24 ghante se reply nahi kiya — WhatsApp rule ke hisaab se ab sirf approved template ja sakta hai.</p>
-                <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => navigate('/outreach/whatsapp?new=1')}>Template bhejein</button>
-              </div>
+              <WindowClosedBar neverReplied={!conv.lastInboundAt} onTemplate={() => setTemplateOpen(true)} className="bg-white dark:bg-ink-900" />
             ) : (
               <form onSubmit={handleSend} className="border-t border-ink-100 bg-white p-2.5 dark:border-ink-800 dark:bg-ink-900">
+                <WindowOpenHint lastInboundAt={conv.lastInboundAt} />
                 {upload && (
                   <div className="mb-2 flex items-center gap-2 rounded-lg bg-ink-50 px-3 py-2 text-xs text-ink-600 dark:bg-ink-800 dark:text-ink-300">
                     <Loader2 size={14} className="animate-spin" /> <span className="truncate">{upload.name}</span>
@@ -595,8 +597,8 @@ export default function ConversationsPage() {
                 )}
                 <div className="flex items-end gap-2">
                   <input ref={fileRef} type="file" className="hidden" accept="image/jpeg,image/png,image/webp,video/mp4,video/3gpp,audio/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt" onChange={(e) => handleFile(e.target.files?.[0])} />
-                  <button type="button" disabled={!!upload} onClick={() => fileRef.current?.click()} className="rounded-lg p-2.5 text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" title="Photo, video ya PDF bhejein" aria-label="Attach file"><Paperclip size={18} /></button>
-                  <button type="button" disabled={!!upload} onClick={() => setMediaOpen(true)} className="hidden rounded-lg px-2.5 py-2.5 text-xs font-semibold text-ink-600 hover:bg-ink-100 sm:block dark:text-ink-300 dark:hover:bg-ink-800" title="Property ka brochure / photos">
+                  <button type="button" disabled={!!upload} onClick={() => fileRef.current?.click()} className="rounded-lg p-2.5 text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" title="Send photo, video or PDF" aria-label="Attach file"><Paperclip size={18} /></button>
+                  <button type="button" disabled={!!upload} onClick={() => setMediaOpen(true)} className="hidden rounded-lg px-2.5 py-2.5 text-xs font-semibold text-ink-600 hover:bg-ink-100 sm:block dark:text-ink-300 dark:hover:bg-ink-800" title="Property brochure / photos">
                     <FileText size={16} className="inline" /> Brochure <ChevronDown size={12} className="inline" />
                   </button>
                   <textarea
@@ -604,7 +606,7 @@ export default function ConversationsPage() {
                     onChange={(e) => setText(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                     rows={1}
-                    placeholder={conv.status === 'manual' ? 'Message likhein…' : 'Message likhein (AI bhi chalu hai)…'}
+                    placeholder={conv.status === 'manual' ? 'Type a message…' : 'Type a message (AI is on)…'}
                     className="max-h-32 min-h-[42px] flex-1 resize-none rounded-xl border border-ink-200 px-3 py-2.5 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
                   />
                   <button type="submit" disabled={sending || !text.trim()} className="btn-primary flex h-[42px] w-[42px] items-center justify-center !p-0 disabled:opacity-50" aria-label="Send">
@@ -624,13 +626,15 @@ export default function ConversationsPage() {
           {showInfo && (
             <div className="fixed inset-0 z-40 flex justify-end bg-black/40 xl:hidden" onMouseDown={(e) => e.target === e.currentTarget && setShowInfo(false)}>
               <div className="h-full w-full max-w-sm overflow-y-auto bg-ink-50 p-3 dark:bg-ink-950">
-                <button type="button" onClick={() => setShowInfo(false)} className="mb-2 flex items-center gap-1 text-sm font-semibold text-ink-600"><ArrowLeft size={16} /> Chat par wapas</button>
+                <button type="button" onClick={() => setShowInfo(false)} className="mb-2 flex items-center gap-1 text-sm font-semibold text-ink-600"><ArrowLeft size={16} /> Back to chat</button>
                 <InsightsPanel active={active} />
               </div>
             </div>
           )}
         </>
       )}
+
+      {templateOpen && conv && <TemplateSendModal leadId={lead._id || conv.leadId} leadName={lead.name} onClose={() => setTemplateOpen(false)} onSent={() => setTimeout(() => setTemplateOpen(false), 900)} />}
 
       <PropertyMediaModal open={mediaOpen} onClose={() => setMediaOpen(false)} conversation={conv} onSent={(msgs) => setActive((p) => (p ? { ...p, messages: mergeMessages(p.messages, msgs) } : p))} />
 

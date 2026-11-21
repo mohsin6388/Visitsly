@@ -13,6 +13,7 @@ export const campaignApi = {
   pause: (id) => api.post(`/campaigns/${id}/pause`).then((r) => r.data),
   resume: (id) => api.post(`/campaigns/${id}/resume`).then((r) => r.data),
   cancel: (id) => api.post(`/campaigns/${id}/cancel`).then((r) => r.data),
+  remove: (id) => api.delete(`/campaigns/${id}`).then((r) => r.data),
   retryFailed: (id, channel) =>
     api
       .post(`/campaigns/${id}/retry-failed`, channel ? { channel } : {})

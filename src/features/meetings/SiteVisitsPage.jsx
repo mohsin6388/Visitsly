@@ -3,9 +3,10 @@ import { Plus, MapPin, Trash2, CalendarClock, CheckCircle2, AlertCircle, Loader2
 import ChatPopup from '../../components/ChatPopup.jsx';
 import { meetingApi } from '../../api/meetingApi.js';
 import ScheduleVisitModal from './ScheduleVisitModal.jsx';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 const STATUSES = ['scheduled', 'visited', 'not_visited', 'rescheduled', 'cancelled'];
-const STATUS_LABEL = { scheduled: 'Baki hai', visited: 'Aa gaye', not_visited: 'Nahi aaye', rescheduled: 'Date badli', cancelled: 'Cancel' };
+const STATUS_LABEL = { scheduled: 'Scheduled', visited: 'Visited', not_visited: 'No-show', rescheduled: 'Rescheduled', cancelled: 'Cancelled' };
 
 const STATUS_COLORS = {
   scheduled: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300',
@@ -16,9 +17,9 @@ const STATUS_COLORS = {
 };
 
 const WHEN_TABS = [
-  { key: 'today', label: 'Aaj' },
-  { key: 'upcoming', label: 'Aane wali' },
-  { key: 'past', label: 'Ho chuki' },
+  { key: 'today', label: 'Today' },
+  { key: 'upcoming', label: 'Upcoming' },
+  { key: 'past', label: 'Past' },
 ];
 
 export default function SiteVisitsPage() {
@@ -43,7 +44,7 @@ export default function SiteVisitsPage() {
       setSummary(res.data.summary || { total: 0, scheduled: 0, visited: 0, notVisited: 0, rescheduled: 0, cancelled: 0 });
       setPagination(res.data.pagination || { page, total: 0, totalPages: 1 });
     } catch (err) {
-      setError(err?.response?.data?.message || 'Site visits load nahi ho paaye');
+      setError(err?.response?.data?.message || 'Could not load site visits');
     } finally {
       setLoading(false);
     }
@@ -54,38 +55,38 @@ export default function SiteVisitsPage() {
   const handleStatusChange = async (id, newStatus) => {
     setError('');
     try { await meetingApi.update(id, { status: newStatus }); await fetchList(); }
-    catch (err) { setError(err?.response?.data?.message || 'Visit status update nahi ho paaya'); }
+    catch (err) { setError(err?.response?.data?.message || 'Could not update visit'); }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this site visit?')) return;
+    if (!(await confirmDialog({ title: 'Delete site visit?', message: 'This cannot be undone.', confirmLabel: 'Delete', cancelLabel: 'Cancel', danger: true }))) return;
     setError('');
     try { await meetingApi.remove(id); await fetchList(); }
-    catch (err) { setError(err?.response?.data?.message || 'Site visit delete nahi ho paaya'); }
+    catch (err) { setError(err?.response?.data?.message || 'Could not delete visit'); }
   };
 
   return (
     <div>
       <div className="flex items-center justify-between">
-        <div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Site Visits</h1><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Jo bhi visit book hogi (WhatsApp chat se ya aapne khud), yahan dikhegi.</p></div>
+        <div><h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Site Visits</h1><p className="mt-1 text-sm text-ink-500 dark:text-ink-400">All booked visits — from WhatsApp chats or added by you.</p></div>
         <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
-          <Plus size={16} /> Visit add karein
+          <Plus size={16} /> Add visit
         </button>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          ['Aaj', summary.today, CalendarDays, 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'],
-          ['Aane wali', summary.upcoming, CalendarClock, 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300'],
-          ['Aa gaye', summary.visited, CheckCircle2, 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-300'],
-          ['Nahi aaye', summary.notVisited, AlertCircle, 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'],
+          ['Today', summary.today, CalendarDays, 'bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300'],
+          ['Upcoming', summary.upcoming, CalendarClock, 'bg-sky-50 text-sky-600 dark:bg-sky-900/30 dark:text-sky-300'],
+          ['Visited', summary.visited, CheckCircle2, 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-300'],
+          ['No-show', summary.notVisited, AlertCircle, 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300'],
         ].map(([label, value, Icon, tone]) => <div key={label} className="card !p-3"><div className="flex items-center gap-2"><span className={`flex h-8 w-8 items-center justify-center rounded-lg ${tone}`}><Icon size={16}/></span><div><p className="text-[11px] text-ink-500 dark:text-ink-400">{label}</p><p className="text-lg font-bold text-ink-900 dark:text-white">{Number(value || 0).toLocaleString('en-IN')}</p></div></div></div>)}
       </div>
 
       {error && <div className="mt-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-300">{error}</div>}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
-        <div role="tablist" aria-label="Kab" className="flex flex-wrap gap-1">
+        <div role="tablist" aria-label="When" className="flex flex-wrap gap-1">
           {WHEN_TABS.map((tab) => (
             <button key={tab.key || 'all'} role="tab" aria-selected={when === tab.key} onClick={() => { setWhen(tab.key); setPage(1); }} className={`rounded-full px-3 py-1.5 text-xs font-medium ${when === tab.key ? 'bg-brand-600 text-white' : 'bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300'}`}>{tab.label}</button>
           ))}
@@ -95,7 +96,7 @@ export default function SiteVisitsPage() {
       <div className="card mt-4 divide-y divide-ink-50 p-0 dark:divide-ink-800">
         {loading && <div className="p-6 text-center text-sm text-ink-400"><Loader2 className="mx-auto animate-spin" size={22}/><p className="mt-2">Loading site visits…</p></div>}
         {!loading && meetings.length === 0 && (
-          <p className="p-6 text-center text-sm text-ink-400">Is tab mein koi site visit nahi hai. Visit book hote hi yahan dikhegi.</p>
+          <p className="p-6 text-center text-sm text-ink-400">No site visits here yet.</p>
         )}
         {meetings.map((m) => (
           <div key={m._id} className="flex items-center justify-between gap-3 p-4">
@@ -105,10 +106,13 @@ export default function SiteVisitsPage() {
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${STATUS_COLORS[m.status]}`}>
                   {STATUS_LABEL[m.status] || m.status}
                 </span>
-                {m.confirmation?.status === 'confirmed' && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">Aa rahe hain ✓</span>}
-                {m.confirmation?.status === 'declined' && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Nahi aa rahe</span>}
-                {m.confirmation?.status === 'pending' && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Jawab ka wait</span>}
-                {m.source === 'whatsapp_ai' && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Chat se book hui</span>}
+                {m.confirmation?.status === 'confirmed' && <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">Coming ✓</span>}
+                {m.confirmation?.status === 'confirmed' && m.confirmation?.confirmedVia === 'call' && <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-semibold text-sky-700">Confirmed by AI call</span>}
+                {m.confirmation?.status === 'confirmed' && m.confirmation?.confirmedVia === 'whatsapp' && <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">Confirmed on WhatsApp</span>}
+                {m.confirmation?.reminderCallAt && <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700">Reminder call made</span>}
+                {m.confirmation?.status === 'declined' && <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">Not coming</span>}
+                {m.confirmation?.status === 'pending' && <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">Awaiting reply</span>}
+                {m.source === 'whatsapp_ai' && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300">Booked via chat</span>}
               </div>
               <p className="mt-0.5 text-xs text-ink-500 dark:text-ink-400">
                 {[m.leadId?.phone, m.leadId?.email].filter(Boolean).join(' · ') || 'No phone/email'} · {m.preferredDate} at {m.preferredTime}

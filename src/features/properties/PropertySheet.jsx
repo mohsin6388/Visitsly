@@ -3,6 +3,7 @@ import { FileText, ImagePlus, Loader2, Maximize2, Plus, Trash2, X } from 'lucide
 import { propertyApi } from '../../api/propertyApi.js';
 import { siteApi, siteKey } from '../../api/siteApi.js';
 import { uploadApi } from '../../api/uploadApi.js';
+import { confirmDialog } from '../../components/ui/index.jsx';
 
 /**
  * Properties in "Excel mode": a spreadsheet grid where every cell is edited
@@ -52,7 +53,7 @@ function toValue(column, raw) {
 }
 
 
-/** Ek property ki photos: ek saath kai photos upload, dekhna aur hatana. */
+/** Photos for one property: bulk upload, view and remove. */
 function PhotosModal({ property, onClose, onSaved }) {
   const [images, setImages] = useState(property.images || []);
   const [uploading, setUploading] = useState(0);
@@ -69,7 +70,7 @@ function PhotosModal({ property, onClose, onSaved }) {
     event.target.value = '';
     if (!files.length) return;
     const bad = files.find((f) => !f.type.startsWith('image/') || f.size > 25 * 1024 * 1024);
-    if (bad) { setError(`${bad.name}: sirf image (25 MB tak) allowed hai.`); return; }
+    if (bad) { setError(`${bad.name}: only images up to 25 MB are allowed.`); return; }
     setError(''); setUploading(files.length);
     const urls = [];
     const failed = [];
@@ -83,14 +84,14 @@ function PhotosModal({ property, onClose, onSaved }) {
     };
     await Promise.all([worker(), worker(), worker()]);
     try { if (urls.length) await persist([...new Set([...images, ...urls])]); }
-    catch (err) { setError(err?.response?.data?.message || 'Photos save nahi hui.'); }
-    if (failed.length) setError(`${failed.length} photo upload nahi hui: ${failed.slice(0, 3).join(', ')}`);
+    catch (err) { setError(err?.response?.data?.message || 'Could not save photos.'); }
+    if (failed.length) setError(`${failed.length} photos failed: ${failed.slice(0, 3).join(', ')}`);
     setUploading(0);
   };
 
   const removeAt = async (index) => {
     try { await persist(images.filter((_, i) => i !== index)); }
-    catch (err) { setError(err?.response?.data?.message || 'Photo hata nahi payi.'); }
+    catch (err) { setError(err?.response?.data?.message || 'Could not remove photo.'); }
   };
 
   return <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50 p-4" role="presentation" onMouseDown={(e) => { if (e.target === e.currentTarget && !uploading) onClose(); }}>
@@ -100,14 +101,14 @@ function PhotosModal({ property, onClose, onSaved }) {
         <button type="button" onClick={onClose} disabled={uploading > 0} className="rounded-lg p-1.5 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Close"><X size={18} /></button>
       </div>
       <label className={`mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl border-2 border-dashed border-ink-200 px-4 py-6 text-sm font-semibold text-ink-600 hover:border-brand-400 hover:text-brand-600 dark:border-ink-700 dark:text-ink-300 ${uploading ? 'pointer-events-none opacity-60' : ''}`}>
-        {uploading ? <><Loader2 size={17} className="animate-spin" /> {uploading} photo upload ho rahi hain…</> : <><ImagePlus size={17} /> Photos chunein (kai ek saath)</>}
+        {uploading ? <><Loader2 size={17} className="animate-spin" /> Uploading {uploading} photos…</> : <><ImagePlus size={17} /> Choose photos</>}
         <input type="file" accept="image/*" multiple className="hidden" disabled={uploading > 0} onChange={addFiles} />
       </label>
       {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</p>}
       {images.length > 0 && <div className="mt-4 grid grid-cols-3 gap-2 sm:grid-cols-4">
         {images.map((url, index) => <div key={url} className="group relative aspect-square overflow-hidden rounded-lg bg-ink-100 dark:bg-ink-800">
           <a href={url} target="_blank" rel="noreferrer"><img src={url} alt={`Property ${index + 1}`} loading="lazy" className="h-full w-full object-cover" /></a>
-          <button type="button" onClick={() => removeAt(index)} className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-100 hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Photo ${index + 1} hatayein`}><X size={13} /></button>
+          <button type="button" onClick={() => removeAt(index)} className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-100 hover:bg-red-600 sm:opacity-0 sm:group-hover:opacity-100" aria-label={`Remove photo ${index + 1}`}><X size={13} /></button>
         </div>)}
       </div>}
     </div>
@@ -134,7 +135,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
       setPagination(res.data.pagination || { page, total: 0, totalPages: 1 });
       drafts.current = {};
     } catch (err) {
-      setError(err?.response?.data?.message || 'Properties load nahi hui.');
+      setError(err?.response?.data?.message || 'Could not load properties.');
     } finally { setLoading(false); }
   }, [page, search, city]);
 
@@ -157,8 +158,8 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
   const saveCell = async (property, column, raw) => {
     const cellId = `${property._id}:${column.key}`;
     const value = toValue(column, raw);
-    if (value === undefined) { setCellState((s) => ({ ...s, [cellId]: 'error' })); setError(`"${raw}" sahi number nahi hai (${column.label}).`); return; }
-    if (column.key === 'projectName' && !value) { setCellState((s) => ({ ...s, [cellId]: 'error' })); setError('Project ka naam khali nahi chhod sakte.'); return; }
+    if (value === undefined) { setCellState((s) => ({ ...s, [cellId]: 'error' })); setError(`"${raw}" is not a valid number (${column.label}).`); return; }
+    if (column.key === 'projectName' && !value) { setCellState((s) => ({ ...s, [cellId]: 'error' })); setError('Project name cannot be empty.'); return; }
     const current = property[column.key] ?? (column.number ? null : '');
     if (String(current ?? '') === String(value ?? '') || (column.key === 'availability' && !property.availability && value === 'available')) return;
     setCellState((s) => ({ ...s, [cellId]: 'saving' }));
@@ -172,7 +173,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
       onChanged?.();
     } catch (err) {
       setCellState((s) => ({ ...s, [cellId]: 'error' }));
-      setError(err?.response?.data?.message || `${column.label} save nahi hua.`);
+      setError(err?.response?.data?.message || `Could not save ${column.label}.`);
     }
   };
 
@@ -184,14 +185,14 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
       if (lastPage !== page) setPage(lastPage); else await load();
       onChanged?.();
     } catch (err) {
-      setError(err?.response?.data?.message || 'Nayi row nahi bani.');
+      setError(err?.response?.data?.message || 'Could not add row.');
     } finally { setAdding(false); }
   };
 
   const removeRow = async (property) => {
-    if (!window.confirm(`"${property.projectName}" row delete karni hai?`)) return;
+    if (!(await confirmDialog({ title: `Delete "${property.projectName}"?`, message: 'This row will be removed.', confirmLabel: 'Delete', cancelLabel: 'Cancel', danger: true }))) return;
     try { await propertyApi.remove(property._id); await load(); onChanged?.(); }
-    catch (err) { setError(err?.response?.data?.message || 'Row delete nahi hui.'); }
+    catch (err) { setError(err?.response?.data?.message || 'Could not delete row.'); }
   };
 
   const cellClass = (property, column) => {
@@ -203,8 +204,8 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
 
   return <div className="mt-4 space-y-3">
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <p className="text-xs text-ink-500 dark:text-ink-400">Cell par click karke likhiye — Enter ya bahar click karte hi save. Price "48 lakh" ya "1.2 cr" bhi likh sakte hain. <b>Available</b> rows hi AI customer ko batata hai.</p>
-      <button type="button" onClick={addRow} disabled={adding} className="btn-primary inline-flex items-center gap-2 !py-2">{adding ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} Nayi row</button>
+      <p className="text-xs text-ink-500 dark:text-ink-400">Click a cell to edit — saves on Enter or click outside. Prices like "48 lakh" or "1.2 cr" work. AI only offers <b>Available</b> rows.</p>
+      <button type="button" onClick={addRow} disabled={adding} className="btn-primary inline-flex items-center gap-2 !py-2">{adding ? <Loader2 size={15} className="animate-spin" /> : <Plus size={15} />} New row</button>
     </div>
     {error && <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{error}</div>}
     <datalist id="sheet-types"><option value="Apartment" /><option value="Villa" /><option value="Plot" /><option value="Commercial" /><option value="Independent house" /></datalist>
@@ -228,7 +229,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
         </thead>
         <tbody>
           {loading && !rows.length ? <tr><td colSpan={COLUMNS.length + 4} className="py-12 text-center text-ink-400"><Loader2 size={20} className="mx-auto animate-spin" /></td></tr>
-            : rows.length === 0 ? <tr><td colSpan={COLUMNS.length + 4} className="py-12 text-center text-sm text-ink-400">Abhi koi property nahi. "Nayi row" dabakar likhna shuru karein, ya Excel import karein.</td></tr>
+            : rows.length === 0 ? <tr><td colSpan={COLUMNS.length + 4} className="py-12 text-center text-sm text-ink-400">No properties yet. Add a row or import from Excel.</td></tr>
             : rows.map((property, rowIndex) => <tr key={property._id} className="group">
               <th scope="row" className="sticky left-0 z-10 border border-ink-200 bg-ink-50 px-2 text-center text-[11px] font-medium text-ink-400 dark:border-ink-700 dark:bg-ink-800">{(pagination.page - 1) * 100 + rowIndex + 2}</th>
               {COLUMNS.map((column) => {
@@ -245,7 +246,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
                 </td>;
               })}
               <td className="border border-ink-200 px-2 dark:border-ink-700">
-                <button type="button" onClick={() => setPhotosFor(property)} className="flex items-center gap-1.5 py-1 text-xs font-semibold text-brand-600 hover:underline" title="Photos upload / dekhein">
+                <button type="button" onClick={() => setPhotosFor(property)} className="flex items-center gap-1.5 py-1 text-xs font-semibold text-brand-600 hover:underline" title="Upload / view photos">
                   {(property.images || []).length
                     ? <><span className="flex -space-x-1.5">{property.images.slice(0, 3).map((url) => <img key={url} src={url} alt="" loading="lazy" className="h-6 w-6 rounded border border-white object-cover dark:border-ink-900" />)}</span><span>{property.images.length}</span></>
                     : <><ImagePlus size={14} /> Add</>}
@@ -261,7 +262,7 @@ export default function PropertySheet({ search = '', city = '', refreshKey = 0, 
     </div>
     {photosFor && <PhotosModal property={photosFor} onClose={() => setPhotosFor(null)} onSaved={(updated) => { setRows((list) => list.map((row) => (row._id === updated._id ? { ...row, ...updated } : row))); setPhotosFor((cur) => (cur ? { ...cur, ...updated } : cur)); onChanged?.(); }} />}
     <div className="flex items-center justify-between text-xs text-ink-500 dark:text-ink-400">
-      <span>{pagination.total || 0} rows · apne-aap save hota hai</span>
+      <span>{pagination.total || 0} rows · saves automatically</span>
       {pagination.totalPages > 1 && <div className="flex items-center gap-2"><button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)} className="rounded-lg border border-ink-200 px-3 py-1.5 disabled:opacity-40 dark:border-ink-700">Prev</button><span>Page {pagination.page} / {pagination.totalPages}</span><button type="button" disabled={page >= pagination.totalPages} onClick={() => setPage((p) => p + 1)} className="rounded-lg border border-ink-200 px-3 py-1.5 disabled:opacity-40 dark:border-ink-700">Next</button></div>}
     </div>
   </div>;

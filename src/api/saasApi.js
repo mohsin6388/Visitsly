@@ -4,6 +4,7 @@ const data = (r) => r.data;
 
 export const publicApi = {
   plans: (params) => api.get("/public/plans", { params }).then(data),
+  geo: () => api.get("/public/geo", { timeout: 2500 }).then(data),
   branding: (host) =>
     api.get("/public/branding", { params: { host } }).then(data),
   formInfo: (key) => api.get(`/inbound/form/${key}`).then(data),
@@ -15,6 +16,10 @@ export const orgApi = {
   get: () => api.get("/org").then(data),
   update: (payload) => api.patch("/org", payload).then(data),
   onboarding: (payload) => api.patch("/org/onboarding", payload).then(data),
+  // Onboarding wizard: final submit + per-step draft (owner only).
+  saveProfile: (payload) => api.patch("/org/profile", payload).then(data),
+  saveProfileDraft: (payload) =>
+    api.patch("/org/profile/draft", payload).then(data),
   whatsapp: () => api.get("/org/whatsapp").then(data),
   connectEmbedded: (payload) =>
     api.post("/org/whatsapp/embedded-signup", payload).then(data),
@@ -44,6 +49,10 @@ export const orgApi = {
     api.post(`/org/team/${id}/set-password`, { password }).then(data),
   whatsappHealth: () => api.get("/org/whatsapp/health").then(data),
   fixWhatsappWebhook: () => api.post("/org/whatsapp/fix-webhook").then(data),
+  sendWhatsappTestMessage: (payload) =>
+    api.post("/org/whatsapp/test-message", payload).then(data),
+  retryCoexistenceSync: () =>
+    api.post("/org/whatsapp/coexistence/sync").then(data),
 };
 
 export const billingApi = {
@@ -53,6 +62,7 @@ export const billingApi = {
   checkout: (plan, cycle) =>
     api.post("/billing/checkout", { plan, cycle }).then(data),
   verify: (payload) => api.post("/billing/verify", payload).then(data),
+  verifyOrder: (payload) => api.post("/billing/verify-order", payload).then(data),
   cancel: () => api.post("/billing/cancel").then(data),
   addonCheckout: (addon, quantity) =>
     api.post("/billing/addon-checkout", { addon, quantity }).then(data),
@@ -114,5 +124,13 @@ export const voiceApi = {
   update: (payload) => api.patch("/voice/settings", payload).then(data),
   call: (leadId) => api.post(`/voice/call/${leadId}`).then(data),
   calls: (params) => api.get("/voice/calls", { params }).then(data),
-  testCall: (phone) => api.post("/voice/test-call", { phone }).then(data),
+  testCall: (phone, kind = "visit") => api.post("/voice/test-call", { phone, kind }).then(data),
+  history: (params) => api.get("/voice/history", { params }).then(data),
+  deleteCall: (id) => api.delete(`/voice/history/${id}`).then(data),
+  clearHistory: (section) =>
+    api.delete("/voice/history", { params: { section } }).then(data),
+  leads: (params) => api.get("/voice/leads", { params }).then(data),
+  queue: (leadIds) => api.post("/voice/queue", { leadIds }).then(data),
+  cancelQueue: (leadIds) =>
+    api.post("/voice/queue/cancel", leadIds ? { leadIds } : {}).then(data),
 };

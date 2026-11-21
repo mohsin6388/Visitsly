@@ -23,6 +23,9 @@ import PropertyFormModal from "./PropertyFormModal.jsx";
 import ImportPropertiesModal from "./ImportPropertiesModal.jsx";
 import PropertySheet from "./PropertySheet.jsx";
 import SiteBrochures from "./SiteBrochures.jsx";
+import { confirmDialog } from '../../components/ui/index.jsx';
+import { useFeature } from "../saas/UpgradeCard.jsx";
+import { showUpgrade } from "../../lib/saas.jsx";
 
 export default function PropertiesPage() {
   // "Excel mode" (spreadsheet grid) is the default view; cards are still available.
@@ -48,6 +51,7 @@ export default function PropertiesPage() {
   const [editingProperty, setEditingProperty] = useState(null);
 
   const [showImport, setShowImport] = useState(false);
+  const canImport = useFeature("inventory");
 
   // ==========================================
   // BROCHURE UPLOAD STATE
@@ -107,7 +111,7 @@ export default function PropertiesPage() {
   // ==========================================
 
   const handleDelete = async (id) => {
-    if (!confirm("Delete this property?")) return;
+    if (!(await confirmDialog({ title: 'Delete property?', message: 'This cannot be undone.', confirmLabel: 'Delete', cancelLabel: 'Cancel', danger: true }))) return;
 
     await propertyApi.remove(id);
 
@@ -119,7 +123,7 @@ export default function PropertiesPage() {
   // ==========================================
 
   const handleBulkDelete = async () => {
-    if (!selected.length || !confirm(`Delete ${selected.length} properties?`)) {
+    if (!selected.length || !(await confirmDialog({ title: `Delete ${selected.length} properties?`, message: 'This cannot be undone.', confirmLabel: 'Delete', cancelLabel: 'Cancel', danger: true }))) {
       return;
     }
 
@@ -316,7 +320,8 @@ export default function PropertiesPage() {
           </a>
 
           <button
-            onClick={() => setShowImport(true)}
+            onClick={() => (canImport ? setShowImport(true) : showUpgrade('Inventory import / export is part of Inventory Management on the Builder Pro plan. Upgrade to bulk-import your inventory.'))}
+            title={canImport ? undefined : 'Builder Pro feature — upgrade to unlock'}
             className="flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-sm font-medium text-ink-700 hover:bg-ink-100 dark:border-ink-700 dark:text-ink-200 dark:hover:bg-ink-800"
           >
             <Upload size={16} />

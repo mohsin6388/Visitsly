@@ -6,4 +6,5 @@ export const settingsApi = {
   pauseAI: () => api.post('/settings/ai/pause').then((r) => r.data),
   resumeAI: () => api.post('/settings/ai/resume').then((r) => r.data),
   testAlert: () => api.post('/settings/test-alert').then((r) => r.data),
+  improveAssistant: (text) => api.post('/settings/assistant/improve', { text }).then((r) => r.data),
 };

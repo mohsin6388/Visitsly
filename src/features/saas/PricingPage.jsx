@@ -1,28 +1,38 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Building2, Check, Loader2, MessageCircle, Sparkles, CalendarCheck, BarChart3 } from 'lucide-react';
 import { publicApi } from '../../api/saasApi.js';
-import { guessCountry, COUNTRY_OPTIONS } from '../../lib/country.js';
+import { COUNTRY_OPTIONS, detectCountry, initialCountry } from '../../lib/country.js';
+import { useAuthStore } from '../../store/authStore.js';
 
-const fmt = (n, currency) => { try { return new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en', { style: 'currency', currency, maximumFractionDigits: 0 }).format(Number(n) || 0); } catch { return `${currency} ${n}`; } };
+import { money as fmt } from '../../lib/saas.jsx';
 
 const FEATURES = [
-  { icon: MessageCircle, title: 'AI WhatsApp agent', body: 'Har lead se Hinglish mein baat karta hai, budget aur location samajhta hai, sahi property aur brochure bhejta hai.' },
-  { icon: CalendarCheck, title: 'Site visit booking', body: 'Chat mein hi visit fix — calendar, reminder aur follow-up apne aap.' },
-  { icon: Sparkles, title: 'Lead scoring', body: 'Har reply par score. 30+ lead, 60+ hot. Aapki team sirf garam leads par time lagaye.' },
-  { icon: BarChart3, title: 'Meta bill dashboard', body: 'Kitne messages gaye, kitna charge laga — sab ek jagah.' },
+  { icon: MessageCircle, title: 'AI WhatsApp agent', body: 'Chats with every lead, understands budget and location, and sends the right property and brochure.' },
+  { icon: CalendarCheck, title: 'Site visit booking', body: 'Books visits in chat — calendar, reminders and follow-ups handled.' },
+  { icon: Sparkles, title: 'Lead scoring', body: 'Every reply is scored. 30+ is a lead, 60+ is hot — your team focuses on the best ones.' },
+  { icon: BarChart3, title: 'Lead alerts', body: 'Hot leads and booked visits reach you on WhatsApp instantly.' },
 ];
 
 export default function PricingPage() {
   const [data, setData] = useState(null);
   const [cycle, setCycle] = useState('monthly');
-  const [country, setCountry] = useState(() => guessCountry());
+  const [country, setCountry] = useState(() => initialCountry());
   const [error, setError] = useState('');
+  const org = useAuthStore((s) => s.org);
+  const countryTouched = useRef(false);
+  // A logged-in company sees its own (fixed) country; visitors get the IP-detected one.
+  useEffect(() => {
+    if (org?.country && org.countryLocked !== false) { setCountry(org.country); return; }
+    detectCountry().then(({ country: c }) => { if (!countryTouched.current) setCountry(c); });
+  }, [org?.country, org?.countryLocked]);
+  const recommended = org?.recommendedPlan || null;
 
   useEffect(() => {
-    publicApi.plans({ country }).then((r) => setData(r.data)).catch((e) => setError(e?.response?.data?.message || 'Plans load nahi hue'));
+    publicApi.plans({ country }).then((r) => setData(r.data)).catch((e) => setError(e?.response?.data?.message || 'Could not load plans'));
   }, [country]);
   const cur = data?.currency || 'INR';
+  const freeMonths = 12 - Number(data?.annualMonthsCharged || 10);
   const inr = (n) => fmt(n, cur);
 
   return (
@@ -39,18 +49,18 @@ export default function PricingPage() {
       </header>
 
       <section className="mx-auto max-w-6xl px-4 pb-6 pt-8 text-center sm:px-6 sm:pt-14">
-        <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">Real estate ke liye WhatsApp AI CRM</p>
-        <h1 className="mx-auto mt-3 max-w-3xl font-display text-3xl font-bold leading-tight text-emerald-950 sm:text-5xl">Har lead se baat. Har visit book. Ek hi CRM mein.</h1>
-        <p className="mx-auto mt-4 max-w-2xl text-base text-ink-600">CRM + bulk WhatsApp + AI agent jo chat karke site visit book kare. {data?.trialDays || 7} din free trial, card nahi chahiye.</p>
+        <p className="text-xs font-bold uppercase tracking-[0.2em] text-amber-700">WhatsApp AI CRM for real estate</p>
+        <h1 className="mx-auto mt-3 max-w-3xl font-display text-3xl font-bold leading-tight text-emerald-950 sm:text-5xl">Talk to every lead. Book every visit. One CRM.</h1>
+        <p className="mx-auto mt-4 max-w-2xl text-base text-ink-600">CRM + bulk WhatsApp + an AI agent that books site visits in chat. {data?.trialDays || 7}-day free trial, no card needed.</p>
         <div className="mt-8 inline-flex rounded-xl border border-ink-200 bg-white p-1 text-sm shadow-card" role="tablist" aria-label="Billing cycle">
           {['monthly', 'annual'].map((c) => (
             <button key={c} role="tab" aria-selected={cycle === c} onClick={() => setCycle(c)} className={`rounded-lg px-4 py-2 font-semibold transition ${cycle === c ? 'bg-emerald-950 text-white' : 'text-ink-600 hover:bg-ink-50'}`}>
-              {c === 'monthly' ? 'Monthly' : 'Yearly — 2 mahine free'}
+              {c === 'monthly' ? 'Monthly' : freeMonths > 0 ? `Yearly — ${freeMonths} month${freeMonths === 1 ? '' : 's'} free` : 'Yearly'}
             </button>
           ))}
         </div>
         <div className="mt-3">
-          <select aria-label="Country" value={country} onChange={(e) => setCountry(e.target.value)} className="rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm">
+          <select aria-label="Country" value={country} onChange={(e) => { countryTouched.current = true; setCountry(e.target.value); }} className="max-w-[90vw] rounded-lg border border-ink-200 bg-white px-3 py-1.5 text-sm">
             {COUNTRY_OPTIONS.map(([c, l]) => <option key={c} value={c}>{l}</option>)}
           </select>
         </div>
@@ -62,38 +72,51 @@ export default function PricingPage() {
         {data && (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {data.plans.map((p) => {
+              const custom = p.customPricing || p.monthly == null;
               const price = cycle === 'annual' ? Math.round(p.annual / 12) : p.monthly;
+              const isRec = recommended === p.code;
+              const highlight = isRec || (!recommended && p.popular);
               return (
-                <article key={p.code} className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-card ${p.popular ? 'border-emerald-700 ring-2 ring-emerald-700/20' : 'border-ink-200'}`}>
-                  {p.popular && <span className="absolute -top-3 left-6 rounded-full bg-amber-500 px-3 py-0.5 text-xs font-bold text-white">Most popular</span>}
+                <article key={p.code} className={`relative flex flex-col rounded-2xl border bg-white p-6 shadow-card ${highlight ? 'border-emerald-700 ring-2 ring-emerald-700/20' : 'border-ink-200'}`}>
+                  {isRec ? <span className="absolute -top-3 left-6 rounded-full bg-emerald-700 px-3 py-0.5 text-xs font-bold text-white">Recommended for you</span>
+                    : p.popular && <span className="absolute -top-3 left-6 rounded-full bg-amber-500 px-3 py-0.5 text-xs font-bold text-white">Most popular</span>}
                   <h2 className="font-display text-xl font-bold text-emerald-950">{p.name}</h2>
                   <p className="text-sm text-ink-500">{p.tagline}</p>
-                  <p className="mt-5 font-display text-3xl font-bold text-ink-900">
-                    {p.contactSales ? <span className="text-2xl">{inr(price)}+</span> : inr(price)}
-                    <span className="text-sm font-medium text-ink-500"> /mahina</span>
-                  </p>
-                  <p className="mt-1 text-xs text-ink-500">
-                    {cycle === 'annual' ? `${inr(p.annual)} saal mein ek baar · ` : ''}{cur === 'INR' ? '+ 18% GST · ' : ''}setup {inr(p.setupFee)} ek baar
-                  </p>
+                  {custom ? (
+                    <>
+                      <p className="mt-5 font-display text-2xl font-bold text-ink-900">Custom pricing</p>
+                      <p className="mt-1 text-xs text-ink-500">Contact sales for a quote</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="mt-5 font-display text-3xl font-bold text-ink-900">
+                        {inr(price)}
+                        <span className="text-sm font-medium text-ink-500"> /month</span>
+                      </p>
+                      <p className="mt-1 text-xs text-ink-500">
+                        {cycle === 'annual' ? `${inr(p.annual)} billed yearly` : 'Billed monthly'}{cur === 'INR' ? ' · + 18% GST' : ''}
+                      </p>
+                    </>
+                  )}
                   <ul className="mt-5 flex-1 space-y-2.5 text-sm text-ink-700">
                     {p.highlights.map((h) => <li key={h} className="flex gap-2"><Check size={16} className="mt-0.5 shrink-0 text-emerald-700" />{h}</li>)}
                   </ul>
                   {p.contactSales ? (
-                    <a href={data.sales?.phone ? `https://wa.me/${data.sales.phone.replace(/\D/g, '')}?text=${encodeURIComponent('Visitsly Enterprise plan ke baare mein baat karni hai')}` : `mailto:${data.sales?.email || ''}?subject=Visitsly%20Enterprise`} className="btn-secondary mt-6 w-full !rounded-xl">Sales se baat karein</a>
+                    <a href={data.sales?.phone ? `https://wa.me/${data.sales.phone.replace(/\D/g, '')}?text=${encodeURIComponent('I would like to discuss the Visitsly Enterprise plan')}` : `mailto:${data.sales?.email || ''}?subject=Visitsly%20Enterprise`} className="btn-secondary mt-6 w-full !rounded-xl">Contact sales</a>
                   ) : (
-                    <Link to={`/signup?plan=${p.code}`} className={`mt-6 w-full !rounded-xl ${p.popular ? 'btn-primary !bg-emerald-950 hover:!bg-emerald-900' : 'btn-secondary'}`}>Free trial shuru karein</Link>
+                    <Link to={`/signup?plan=${p.code}`} className={`mt-6 w-full !rounded-xl ${highlight ? 'btn-primary !bg-emerald-950 hover:!bg-emerald-900' : 'btn-secondary'}`}>Start free trial</Link>
                   )}
                 </article>
               );
             })}
           </div>
         )}
-        <p className="mt-6 text-center text-xs text-ink-500">Meta ke WhatsApp message charges aapke apne WhatsApp Business account se seedhe Meta ko jaate hain — Visitsly unpar koi markup nahi leta.</p>
+        <p className="mt-6 text-center text-xs text-ink-500">Meta’s WhatsApp charges are billed directly to your own WhatsApp Business account — Visitsly adds no markup.</p>
         {data?.addons && (
           <div className="mx-auto mt-8 max-w-3xl rounded-2xl border border-ink-200 bg-white p-5 text-sm">
             <h3 className="font-semibold text-ink-900">Add-ons</h3>
             <ul className="mt-3 grid gap-2 sm:grid-cols-3">
-              {Object.values(data.addons).map((a) => <li key={a.name} className="rounded-lg bg-ink-50 px-3 py-2"><span className="block text-ink-600">{a.name}</span><span className="font-semibold">{inr(a.price)}</span><span className="text-ink-500"> / {a.unit === 'month' ? 'mahina' : 'pack'}</span></li>)}
+              {Object.values(data.addons).map((a) => <li key={a.name} className="rounded-lg bg-ink-50 px-3 py-2"><span className="block text-ink-600">{a.name}</span><span className="font-semibold">{inr(a.price)}</span><span className="text-ink-500"> / {a.unit === 'month' ? 'month' : a.unit === 'minute' ? 'minute' : a.unit === 'once' ? 'one-time' : 'pack'}</span></li>)}
             </ul>
           </div>
         )}

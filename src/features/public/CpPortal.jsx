@@ -13,14 +13,14 @@ const cp = axios.create({ baseURL: configured.endsWith('/') ? configured : `${co
 
 const STAGE = {
   registered: ['Registered', 'bg-ink-100 text-ink-700'],
-  in_discussion: ['Baat chal rahi hai', 'bg-sky-100 text-sky-700'],
+  in_discussion: ['In discussion', 'bg-sky-100 text-sky-700'],
   visit_scheduled: ['Visit scheduled', 'bg-amber-100 text-amber-800'],
-  visited: ['Visit ho gaya', 'bg-violet-100 text-violet-700'],
+  visited: ['Visited', 'bg-violet-100 text-violet-700'],
   booked: ['Booked', 'bg-green-100 text-green-700'],
   lost: ['Lost', 'bg-red-100 text-red-700'],
 };
 
-const err = (e) => e?.response?.data?.details?.[0]?.message || e?.response?.data?.message || 'Kuch galat hua';
+const err = (e) => e?.response?.data?.details?.[0]?.message || e?.response?.data?.message || 'Something went wrong';
 
 function Auth({ slug, info, onLogin }) {
   const [mode, setMode] = useState('login');
@@ -56,8 +56,8 @@ function Auth({ slug, info, onLogin }) {
       <form className="space-y-3" onSubmit={submit}>
         {mode === 'register' && (
           <>
-            <input className="input-field" placeholder="Aapka naam" required value={f.name} onChange={set('name')} />
-            <input className="input-field" placeholder="Firm ka naam" value={f.firmName} onChange={set('firmName')} />
+            <input className="input-field" placeholder="Your name" required value={f.name} onChange={set('name')} />
+            <input className="input-field" placeholder="Firm name" value={f.firmName} onChange={set('firmName')} />
             <input className="input-field" placeholder="Mobile" required inputMode="tel" value={f.phone} onChange={set('phone')} />
             <div className="grid grid-cols-2 gap-3">
               <input className="input-field" placeholder="City" value={f.city} onChange={set('city')} />
@@ -69,7 +69,7 @@ function Auth({ slug, info, onLogin }) {
         <input className="input-field" placeholder="Password" type="password" required autoComplete={mode === 'login' ? 'current-password' : 'new-password'} value={f.password} onChange={set('password')} />
         <button className="btn-primary w-full gap-2 !bg-emerald-950 hover:!bg-emerald-900" disabled={busy}>{busy && <Loader2 size={15} className="animate-spin" />}{mode === 'login' ? 'Login' : 'Register'}</button>
       </form>
-      {mode === 'register' && info && <p className="mt-3 text-xs text-ink-500">Commission {info.commissionPct}% · Aapke registered customer {info.leadProtectionDays} din tak aapke naam protected rahenge.</p>}
+      {mode === 'register' && info && <p className="mt-3 text-xs text-ink-500">Commission {info.commissionPct}% · Customers you register stay protected under your name for {info.leadProtectionDays} days.</p>}
     </div>
   );
 }
@@ -115,7 +115,7 @@ function Dashboard({ token, onLogout }) {
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-ink-600">Namaste <strong>{me.partner.name}</strong>{me.partner.firmName ? ` (${me.partner.firmName})` : ''} · commission {me.partner.commissionPct}%</p>
+        <p className="text-sm text-ink-600">Hi <strong>{me.partner.name}</strong>{me.partner.firmName ? ` (${me.partner.firmName})` : ''} · commission {me.partner.commissionPct}%</p>
         <button className="btn-secondary gap-2 !py-1.5" onClick={onLogout}><LogOut size={14} /> Logout</button>
       </div>
       <div className="grid grid-cols-3 gap-3">
@@ -131,7 +131,7 @@ function Dashboard({ token, onLogout }) {
             <thead className="bg-ink-50 text-xs uppercase text-ink-400"><tr><th className="px-4 py-2.5">Customer</th><th className="px-4 py-2.5">Project</th><th className="px-4 py-2.5">Status</th><th className="px-4 py-2.5">Protected till</th><th className="px-4 py-2.5 text-right">Commission</th></tr></thead>
             <tbody className="divide-y divide-ink-100">
               {leads.map((l) => <tr key={l.id}><td className="px-4 py-2.5">{l.name}<span className="block text-xs text-ink-400">{l.phone}</span></td><td className="px-4 py-2.5">{l.project || '—'}</td><td className="px-4 py-2.5"><span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${STAGE[l.stage]?.[1]}`}>{STAGE[l.stage]?.[0]}</span>{l.nextVisit && <span className="block text-xs text-ink-400">{l.nextVisit}</span>}</td><td className="px-4 py-2.5 text-ink-500">{fmtDate(l.protectedUntil)}</td><td className="px-4 py-2.5 text-right font-mono">{l.commission ? inr(l.commission) : '—'}</td></tr>)}
-              {!leads.length && <tr><td colSpan={5} className="px-4 py-10 text-center text-ink-500">Abhi koi customer register nahi kiya.</td></tr>}
+              {!leads.length && <tr><td colSpan={5} className="px-4 py-10 text-center text-ink-500">No customers registered yet.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -139,16 +139,16 @@ function Dashboard({ token, onLogout }) {
       {tab === 'add' && (
         <form onSubmit={submit} className="space-y-3 rounded-xl border border-ink-100 bg-white p-5 shadow-card">
           <div className="grid gap-3 sm:grid-cols-2">
-            <input className="input-field" placeholder="Customer ka naam" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-            <input className="input-field" placeholder="Customer ka mobile" required inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
+            <input className="input-field" placeholder="Customer name" required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
+            <input className="input-field" placeholder="Customer mobile" required inputMode="tel" value={f.phone} onChange={(e) => setF({ ...f, phone: e.target.value })} />
             <input className="input-field" placeholder="Email (optional)" type="email" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
             <select className="input-field" value={f.project} onChange={(e) => setF({ ...f, project: e.target.value })} aria-label="Project"><option value="">Project</option>{projects.map((p) => <option key={p} value={p}>{p}</option>)}</select>
             <input className="input-field" placeholder="Budget (₹)" inputMode="numeric" value={f.budget} onChange={(e) => setF({ ...f, budget: e.target.value.replace(/\D/g, '') })} />
-            <input className="input-field" placeholder="Visit kab? (optional)" value={f.visitDate} onChange={(e) => setF({ ...f, visitDate: e.target.value })} />
+            <input className="input-field" placeholder="Visit date (optional)" value={f.visitDate} onChange={(e) => setF({ ...f, visitDate: e.target.value })} />
           </div>
           <textarea className="input-field" rows={2} placeholder="Notes" value={f.notes} onChange={(e) => setF({ ...f, notes: e.target.value })} />
           <button className="btn-primary !bg-emerald-950 hover:!bg-emerald-900">Register customer</button>
-          <p className="text-xs text-ink-500">Agar customer pehle se builder ke paas hai to register nahi hoga (lead protection sabke liye barabar).</p>
+          <p className="text-xs text-ink-500">Customers already with the builder can’t be registered (equal lead protection for all).</p>
         </form>
       )}
       {tab === 'inventory' && (
@@ -166,7 +166,7 @@ function Dashboard({ token, onLogout }) {
               </div>
             </div>
           ))}
-          {!inv.length && <p className="text-sm text-ink-500">Inventory jald update hogi.</p>}
+          {!inv.length && <p className="text-sm text-ink-500">Inventory coming soon.</p>}
         </div>
       )}
     </div>
@@ -181,7 +181,7 @@ export default function CpPortal() {
   const [token, setToken] = useState(() => { try { return sessionStorage.getItem(storeKey); } catch { return null; } });
 
   useEffect(() => {
-    cp.get(`cp/${slug}/info`).then((r) => setInfo(r.data.data)).catch(() => setError('Ye partner portal available nahi hai.'));
+    cp.get(`cp/${slug}/info`).then((r) => setInfo(r.data.data)).catch(() => setError('This partner portal is not available.'));
   }, [slug]);
 
   const login = (t) => { try { sessionStorage.setItem(storeKey, t); } catch { /* private mode */ } setToken(t); };

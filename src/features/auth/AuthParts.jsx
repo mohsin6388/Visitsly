@@ -4,50 +4,46 @@ import { UserRound, UserPlus } from "lucide-react";
 export function BrandMark({
   logoUrl,
   name = "Visitsly",
-  light = false,
   size = "md",
   className = "",
 }) {
   const sm = size === "sm";
+  const hasSly = name.toLowerCase().endsWith("sly");
+  const head = hasSly ? name.slice(0, -3) : name;
   return (
     <span className={`inline-flex items-center gap-2.5 ${className}`}>
       {logoUrl ? (
         <img
           src={logoUrl}
           alt={`${name} logo`}
-          className={`${sm ? "h-8 w-8" : "h-9 w-9"} rounded-xl bg-white object-contain p-1 shadow-sm`}
+          className={`${sm ? "h-9 w-9" : "h-10 w-10"} rounded-xl bg-white object-contain p-1 shadow-sm`}
         />
       ) : (
         <span
-          className={`flex ${sm ? "h-8 w-8" : "h-9 w-9"} items-center justify-center rounded-xl bg-lp-teal shadow-md shadow-lp-teal/30`}
+          aria-hidden="true"
+          className={`flex ${sm ? "h-9 w-9 text-lg" : "h-10 w-10 text-xl"} items-center justify-center rounded-xl bg-gradient-to-br from-[#2563EB] to-[#06B6D4] shadow-md shadow-blue-500/30`}
         >
-          <span className="h-3.5 w-3.5 rotate-45 rounded-[3px] bg-white" />
+          🏠
         </span>
       )}
       <span
-        className={`font-display ${sm ? "text-[22px]" : "text-[24px]"} font-extrabold tracking-[-0.04em] ${light ? "text-white" : "text-lp-ink"}`}
+        className={`font-display ${sm ? "text-[22px]" : "text-2xl"} font-extrabold tracking-[-0.03em] text-lp-ink`}
       >
-        {name}
+        {head}
+        {hasSly && <span className="text-[#2F6BE8]">sly</span>}
       </span>
     </span>
   );
 }
 
-/* Section-style heading: bold first part, light second part (like the landing page). */
-export function AuthHeading({ bold, light, children }) {
+export function AuthHeading({ bold, children }) {
   return (
     <div>
-      <h1 className="font-display text-[34px] uppercase leading-[1.02] tracking-[-0.03em] text-lp-ink [word-spacing:0.08em] sm:text-[40px]">
-        <span className="font-extrabold">{bold}</span>
-        {light && (
-          <>
-            <br />
-            <span className="font-light">{light}</span>
-          </>
-        )}
+      <h1 className="font-display text-2xl font-bold leading-tight tracking-[-0.02em] text-lp-ink">
+        {bold}
       </h1>
       {children && (
-        <p className="mt-3 max-w-md text-[15px] leading-6 text-slate-500 lg:[@media(max-height:760px)]:hidden">
+        <p className="mt-1 text-sm text-slate-500 lg:[@media(max-height:700px)]:hidden">
           {children}
         </p>
       )}
@@ -57,13 +53,13 @@ export function AuthHeading({ bold, light, children }) {
 
 export function AuthTabs({ active = "login" }) {
   const base =
-    "flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-full px-3 py-2.5 text-sm font-semibold transition sm:px-4";
-  const on = "bg-lp-ink text-white shadow-md";
-  const off = "text-slate-600 hover:text-lp-ink";
+    "flex flex-1 items-center justify-center gap-2 whitespace-nowrap rounded-lg px-3 py-2 text-sm font-semibold transition";
+  const on = "bg-white text-lp-teal shadow-sm";
+  const off = "text-slate-500 hover:text-lp-ink";
   return (
     <div
       role="tablist"
-      className="mb-6 flex rounded-full border border-[#dfe7e4] bg-lp-card p-1"
+      className="mb-5 flex rounded-xl border border-[#dbe3f5] bg-lp-card p-1"
     >
       <Link
         to="/login"
@@ -71,7 +67,7 @@ export function AuthTabs({ active = "login" }) {
         aria-selected={active === "login"}
         className={`${base} ${active === "login" ? on : off}`}
       >
-        <UserRound size={16} aria-hidden="true" /> Login
+        <UserRound size={15} aria-hidden="true" /> Login
       </Link>
       <Link
         to="/signup"
@@ -79,7 +75,7 @@ export function AuthTabs({ active = "login" }) {
         aria-selected={active === "signup"}
         className={`${base} ${active === "signup" ? on : off}`}
       >
-        <UserPlus size={16} aria-hidden="true" /> Create account
+        <UserPlus size={15} aria-hidden="true" /> Create account
       </Link>
     </div>
   );

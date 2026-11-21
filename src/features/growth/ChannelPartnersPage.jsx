@@ -42,19 +42,19 @@ export default function ChannelPartnersPage() {
 
   if (isLoading || !settings) return <div className="flex justify-center py-20"><Loader2 className="animate-spin text-ink-400" /></div>;
   const items = data.data.items;
-  const share = encodeURIComponent(`Hamare projects ke channel partner baniye — register karein: ${settings.portalUrl}`);
+  const share = encodeURIComponent(`Become a channel partner for our projects — register here: ${settings.portalUrl}`);
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
-      <PageTitle title="Channel partners" subtitle="Brokers aapke projects ke liye customers laayein — lead protection aur commission ke saath." />
+      <PageTitle title="Channel partners" subtitle="Let brokers bring customers to your projects — with lead protection and commission." />
       <Notice msg={msg} />
       <section className="card min-w-0 space-y-4">
-        <Toggle checked={!!settings.enabled} label="Channel partner portal chalu karein" help="Brokers register karke customer register kar sakenge, inventory aur brochures dekh sakenge, aur apni leads ka status track kar sakenge." onChange={(v) => save({ enabled: v }, v ? 'Portal chalu' : 'Portal band')} />
+        <Toggle checked={!!settings.enabled} label="Enable channel partner portal" help="Brokers can register customers, see inventory and brochures, and track their leads." onChange={(v) => save({ enabled: v }, v ? 'Portal on' : 'Portal off')} />
         {settings.enabled && (
           <>
             <CopyBox label="Partner portal link" value={settings.portalUrl} />
-            <a className="btn-secondary w-fit gap-1.5 !py-1.5 text-xs" href={`https://wa.me/?text=${share}`} target="_blank" rel="noreferrer"><Share2 size={13} /> Brokers ko WhatsApp par bhejein</a>
-            <Toggle checked={!!settings.autoApprove} label="Naye partners auto-approve" help="Off rakhenge to har broker ko aap approve karenge." onChange={(v) => save({ autoApprove: v })} />
+            <a className="btn-secondary w-fit gap-1.5 !py-1.5 text-xs" href={`https://wa.me/?text=${share}`} target="_blank" rel="noreferrer"><Share2 size={13} /> Share with brokers on WhatsApp</a>
+            <Toggle checked={!!settings.autoApprove} label="Auto-approve new partners" help="When off, you approve each broker." onChange={(v) => save({ autoApprove: v })} />
             {form && (
               <form className="flex flex-wrap items-end gap-3" onSubmit={(e) => { e.preventDefault(); save({ defaultCommissionPct: Number(form.defaultCommissionPct), leadProtectionDays: Number(form.leadProtectionDays) }); }}>
                 <label className="text-xs text-ink-500">Default commission %<input className="input-field mt-1 !w-28" inputMode="decimal" value={form.defaultCommissionPct} onChange={(e) => setForm({ ...form, defaultCommissionPct: e.target.value })} /></label>
@@ -88,12 +88,12 @@ export default function ChannelPartnersPage() {
                   </td>
                 </tr>
               ))}
-              {!items.length && <tr><td colSpan={7} className="px-4 py-10 text-center text-ink-500">Abhi koi partner nahi — upar ka link brokers ko bhejiye.</td></tr>}
+              {!items.length && <tr><td colSpan={7} className="px-4 py-10 text-center text-ink-500">No partners yet — share the link above with brokers.</td></tr>}
             </tbody>
           </table>
         </div>
       </section>
-      <p className="text-xs text-ink-500">Commission tab banta hai jab aap chat panel se lead ko "Booked" mark karte hain (deal value ke saath).</p>
+      <p className="text-xs text-ink-500">Commission is created when you mark a lead "Booked" (with deal value) from the chat panel.</p>
     </div>
   );
 }

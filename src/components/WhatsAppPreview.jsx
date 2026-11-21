@@ -68,7 +68,7 @@ export default function WhatsAppPreview({
               : <div className="m-1 flex h-28 items-center justify-center rounded-md bg-slate-200 text-[11px] text-slate-500">Header image</div>)}
             <div className="px-2.5 pb-1.5 pt-2 text-[13px] leading-[1.4] text-[#111B21]">
               {headerText && !needsImage && <p className="mb-1 font-bold"><Formatted text={fill(headerText, values)} /></p>}
-              <p className="whitespace-pre-wrap break-words">{bodyText ? <Formatted text={bodyText} /> : <span className="text-slate-400">Message yahan dikhega…</span>}</p>
+              <p className="whitespace-pre-wrap break-words">{bodyText ? <Formatted text={bodyText} /> : <span className="text-slate-400">Your message appears here…</span>}</p>
               {footer && <p className="mt-1 text-[11px] text-slate-500">{footer}</p>}
               <p className="mt-0.5 flex items-center justify-end gap-1 text-[10px] text-slate-400">{time} <CheckCheck size={13} className="text-sky-500" aria-hidden="true" /></p>
             </div>
@@ -79,6 +79,6 @@ export default function WhatsAppPreview({
         </div>
       </div>
     </div>
-    {(caption || unfilled) && <p className="mt-2 text-center text-[11px] text-ink-500 dark:text-ink-400">{unfilled ? 'Jahan {{1}} dikh raha hai, wahan har customer ki value aayegi.' : caption}</p>}
+    {(caption || unfilled) && <p className="mt-2 text-center text-[11px] text-ink-500 dark:text-ink-400">{unfilled ? '{{1}} is replaced with each customer’s value.' : caption}</p>}
   </div>;
 }

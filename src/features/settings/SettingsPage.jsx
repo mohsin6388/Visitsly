@@ -1,19 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import {
-  Bot,
-  Timer,
-  UserCog,
-  Smartphone,
-  BellRing,
-  CheckCircle2,
-  XCircle,
-  Loader2,
-  PowerOff,
-  Power,
-  Mail,
-  AlertTriangle,
-} from 'lucide-react';
+import { Bot, UserCog, BellRing, Loader2, Mail, ChevronDown, Sparkles, UserRound } from 'lucide-react';
 
 import { settingsApi } from '../../api/settingsApi.js';
 import { whatsappApi } from '../../api/whatsappApi.js';
@@ -43,7 +30,101 @@ function Toggle({ checked, onChange, disabled }) {
 
 const DELAY_OPTIONS = [2, 5, 10];
 
+const LANGUAGE_OPTIONS = ['', 'English', 'Hindi', 'Hinglish', 'Bangla', 'Arabic'];
+const INSTRUCTIONS_MAX = 1500;
+
+/** The company's own WhatsApp AI assistant: name, voice (Hindi verbs) and its own instructions. */
+function AssistantSettings({ settings, patchSettings, saving }) {
+  const saved = settings?.assistant || {};
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ name: saved.name || '', gender: saved.gender || 'female', defaultLanguage: saved.defaultLanguage || '', instructions: saved.instructions || '' });
+  const [improving, setImproving] = useState(false);
+  const [preview, setPreview] = useState('');
+  const [msg, setMsg] = useState('');
+  useEffect(() => {
+    setForm({ name: saved.name || '', gender: saved.gender || 'female', defaultLanguage: saved.defaultLanguage || '', instructions: saved.instructions || '' });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saved.name, saved.gender, saved.defaultLanguage, saved.instructions]);
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const dirty = form.name !== (saved.name || '') || form.gender !== (saved.gender || 'female') || form.defaultLanguage !== (saved.defaultLanguage || '') || form.instructions !== (saved.instructions || '');
+
+  const improve = async () => {
+    setMsg('');
+    setPreview('');
+    const text = [form.defaultLanguage && `Default language: ${form.defaultLanguage}`, form.instructions].filter(Boolean).join('\n');
+    if (text.trim().length < 5) { setMsg('Write a few lines first (tone, language, what to highlight, offers).'); return; }
+    setImproving(true);
+    try {
+      const r = await settingsApi.improveAssistant(text);
+      setPreview(r.data?.improved || '');
+    } catch (e) {
+      setMsg(e?.response?.data?.message || 'Could not improve the text right now.');
+    } finally {
+      setImproving(false);
+    }
+  };
+
+  const save = () => patchSettings({ assistant: { name: form.name.trim(), gender: form.gender, defaultLanguage: form.defaultLanguage, instructions: form.instructions.slice(0, INSTRUCTIONS_MAX) } });
+
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen((v) => !v)} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300"><UserRound size={18} /></span>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-semibold text-ink-900 dark:text-white">AI assistant</p>
+          <p className="text-xs text-ink-500 dark:text-ink-400">Name: {saved.name || 'Monica'} · {saved.gender === 'male' ? 'Male' : 'Female'}{saved.instructions ? ' · custom instructions on' : ''}</p>
+        </div>
+        <ChevronDown size={16} className={`text-ink-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+        <div className="space-y-4 px-4 pb-4">
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block text-xs font-semibold text-ink-600 dark:text-ink-300">Bot name
+              <input className="input-field mt-1 w-full" maxLength={40} placeholder="Monica" value={form.name} onChange={set('name')} />
+            </label>
+            <label className="block text-xs font-semibold text-ink-600 dark:text-ink-300">Male / Female
+              <select className="input-field mt-1 w-full" value={form.gender} onChange={set('gender')}>
+                <option value="female">Female (kar rahi hoon)</option>
+                <option value="male">Male (kar raha hoon)</option>
+              </select>
+            </label>
+            <label className="block text-xs font-semibold text-ink-600 dark:text-ink-300">Default language
+              <select className="input-field mt-1 w-full" value={form.defaultLanguage} onChange={set('defaultLanguage')}>
+                {LANGUAGE_OPTIONS.map((l) => <option key={l} value={l}>{l || 'Ask the customer (default)'}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="-mt-2 text-[11px] text-ink-400">The customer's own language choice always wins over the default.</p>
+          <label className="block text-xs font-semibold text-ink-600 dark:text-ink-300">Your instructions for the AI <span className="font-normal text-ink-400">({form.instructions.length}/{INSTRUCTIONS_MAX})</span>
+            <textarea className="input-field mt-1 min-h-[130px] w-full" maxLength={INSTRUCTIONS_MAX} value={form.instructions} onChange={set('instructions')}
+              placeholder={'Example: Polite and friendly. We sell 2 & 3 BHK flats in Noida Sector 150. Highlight metro nearby and RERA approval. Always invite for a site visit on weekends.'} />
+          </label>
+          <p className="-mt-2 text-[11px] text-ink-400">Your text is added on top of Visitsly's built-in rules. The AI still uses only your real property data, never lies and keeps the customer's chosen language.</p>
+          {msg && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">{msg}</p>}
+          {preview && (
+            <div className="rounded-lg border border-emerald-200 bg-emerald-50/60 p-3">
+              <p className="mb-1 text-xs font-semibold text-emerald-800">Improved version — check it, then use it</p>
+              <pre className="whitespace-pre-wrap font-sans text-xs text-ink-700">{preview}</pre>
+              <div className="mt-2 flex gap-2">
+                <button type="button" className="btn-primary !py-1.5 text-xs" onClick={() => { setForm((f) => ({ ...f, instructions: preview.slice(0, INSTRUCTIONS_MAX) })); setPreview(''); }}>Use this</button>
+                <button type="button" className="btn-secondary !py-1.5 text-xs" onClick={() => setPreview('')}>Keep mine</button>
+              </div>
+            </div>
+          )}
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="btn-secondary gap-1.5 !py-1.5 text-xs" disabled={improving} onClick={improve}>
+              {improving ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />} Improve my prompt
+            </button>
+            <button type="button" className="btn-primary !py-1.5 text-xs" disabled={saving || !dirty} onClick={save}>Save</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function OwnerAlerts({ settings, setSettings, patchSettings, saving }) {
+  const [open, setOpen] = useState(false);
   const [templates, setTemplates] = useState([]);
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState('');
@@ -54,43 +135,52 @@ function OwnerAlerts({ settings, setSettings, patchSettings, saving }) {
   const vars = (t) => Math.max(0, ...[...String(bodyText(t)).matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])));
   const test = async () => {
     setTesting(true); setTestMsg('');
-    try { const r = await settingsApi.testAlert(); setTestMsg(r.message); } catch (e) { setTestMsg(e?.response?.data?.message || 'Test alert nahi gaya'); } finally { setTesting(false); }
+    try { const r = await settingsApi.testAlert(); setTestMsg(r.message); } catch (e) { setTestMsg(e?.response?.data?.message || 'Test alert failed'); } finally { setTesting(false); }
   };
+  const active = ['hotLead', 'visitBooked', 'visitConfirmed'].filter((k) => alertOn[k] !== false).length;
   return (
-    <div className="card mt-4">
-      <div className="flex items-start gap-3">
-        <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><BellRing size={20} /></span>
-        <div className="min-w-0 flex-1">
-          <h2 className="text-base font-semibold text-ink-900 dark:text-white">Aapke WhatsApp par turant alert</h2>
-          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">Lead HOT hote hi, site visit book / confirm hote hi aapke number par WhatsApp aayega — customer ka naam, number aur requirement ke saath.</p>
-          <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_220px]">
+    <section className="border-t border-ink-100 dark:border-ink-800">
+      <button type="button" onClick={() => setOpen((v) => !v)} aria-expanded={open} className="flex w-full items-center gap-3 px-4 py-3 text-left">
+        <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300"><BellRing size={18} /></span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold text-ink-900 dark:text-white">Instant WhatsApp alerts</span>
+          <span className="block truncate text-xs text-ink-500 dark:text-ink-400">{active} of 3 alerts on · to {String(settings?.leadAlertPhone || '').trim() || 'company phone'}</span>
+        </span>
+        <ChevronDown size={16} className={`shrink-0 text-ink-400 transition ${open ? 'rotate-180' : ''}`} />
+      </button>
+      {open && (
+      <div className="px-4 pb-4">
+        <div className="min-w-0">
+          <p className="text-xs text-ink-500 dark:text-ink-400">Get a WhatsApp with the customer’s name, number and requirement when a lead turns hot or a visit is booked or confirmed.</p>
+          <div className="mt-3 grid gap-3 sm:grid-cols-[minmax(0,1fr)_200px]">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Aapka WhatsApp number (ek se zyada ho to comma lagayein)</label>
+              <label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Your WhatsApp number (comma-separate multiple)</label>
               <input className="input-field" inputMode="tel" placeholder="9876543210, 9123456780" value={settings?.leadAlertPhone || ''} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertPhone: e.target.value }))} />
-              <p className="mt-1 text-[11px] text-ink-400">Khali chhodenge to company ka phone number use hoga.</p>
+              <p className="mt-1 text-[11px] text-ink-400">Blank = company phone number.</p>
             </div>
-            <div><label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Lead alert kab</label><select className="input-field" value={settings?.leadAlertLevel || 'hot'} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertLevel: e.target.value }))}><option value="hot">Sirf Hot lead par</option><option value="hot_warm">Hot ya Warm lead par</option></select></div>
+            <div><label className="mb-1 block text-xs font-semibold text-ink-600 dark:text-ink-300">Lead alert for</label><select className="input-field" value={settings?.leadAlertLevel || 'hot'} onChange={(e) => setSettings((prev) => ({ ...prev, leadAlertLevel: e.target.value }))}><option value="hot">Hot leads only</option><option value="hot_warm">Hot or warm leads</option></select></div>
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-3">
-            {[['hotLead', '🔥 Hot lead'], ['visitBooked', '📅 Visit book hui'], ['visitConfirmed', '✅ Visit confirm / cancel']].map(([k, label]) => (
+            {[['hotLead', '🔥 Hot lead'], ['visitBooked', '📅 Visit booked'], ['visitConfirmed', '✅ Visit confirmed / cancelled']].map(([k, label]) => (
               <label key={k} className="flex items-center gap-2 rounded-lg border border-ink-200 px-3 py-2 text-sm dark:border-ink-700"><input type="checkbox" checked={alertOn[k] !== false} onChange={(e) => setSettings((prev) => ({ ...prev, alertOn: { ...alertOn, [k]: e.target.checked } }))} />{label}</label>
             ))}
           </div>
-          <label className="mt-3 block text-xs font-semibold text-ink-600 dark:text-ink-300">Alert template (jab aapke number ka 24 ghante wala window band ho)
+          <label className="mt-3 block text-xs font-semibold text-ink-600 dark:text-ink-300">Alert template (when your 24-hour window is closed)
             <select className="input-field mt-1" value={tpl.name ? `${tpl.name}::${tpl.language}` : ''} onChange={(e) => { const t = templates.find((x) => `${x.name}::${x.language}` === e.target.value); setSettings((prev) => ({ ...prev, alertTemplate: t ? { name: t.name, language: t.language, variableCount: Math.min(5, vars(t)) } : { name: '', language: '', variableCount: 0 } })); }}>
-              <option value="">Koi nahi (sirf free message + email backup)</option>
+              <option value="">None (free message + email backup only)</option>
               {templates.map((t) => <option key={`${t.name}::${t.language}`} value={`${t.name}::${t.language}`}>{t.name} · {t.language}</option>)}
             </select>
-            <span className="mt-1 block font-normal text-ink-400">Tip: Apne personal number se business WhatsApp par ek baar "Hi" bhej dijiye — 24 ghante tak alerts free mein aayenge. Template se alerts kabhi bhi aate hain. Variables: {'{{1}}'} naam · {'{{2}}'} phone · {'{{3}}'} email · {'{{4}}'} score · {'{{5}}'} summary.</span>
+            <span className="mt-1 block font-normal text-ink-400">Tip: send "Hi" from your personal number to the business WhatsApp — alerts are free for 24 hours. Templates work anytime. Variables: {'{{1}}'} name · {'{{2}}'} phone · {'{{3}}'} email · {'{{4}}'} score · {'{{5}}'} summary.</span>
           </label>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             <button type="button" disabled={saving} onClick={() => patchSettings({ leadAlertPhone: String(settings?.leadAlertPhone || '').trim(), leadAlertLevel: settings?.leadAlertLevel === 'hot_warm' ? 'hot_warm' : 'hot', alertOn, alertTemplate: { name: settings?.alertTemplate?.name || '', language: settings?.alertTemplate?.language || '', variableCount: settings?.alertTemplate?.variableCount || 0 } })} className="btn-primary">{saving ? 'Saving…' : 'Save'}</button>
-            <button type="button" disabled={testing} onClick={test} className="btn-secondary">{testing ? 'Bhej rahe hain…' : 'Test alert bhejein'}</button>
+            <button type="button" disabled={testing} onClick={test} className="btn-secondary">{testing ? 'Sending…' : 'Send test alert'}</button>
           </div>
-          {testMsg && <p className="mt-2 rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-700 dark:bg-ink-800 dark:text-ink-200">{testMsg}</p>}
+          {testMsg && <p className="mt-2 rounded-lg bg-ink-50 px-3 py-2 text-sm text-ink-700 [overflow-wrap:anywhere] dark:bg-ink-800 dark:text-ink-200">{testMsg}</p>}
         </div>
       </div>
-    </div>
+      )}
+    </section>
   );
 }
 
@@ -101,9 +191,6 @@ export default function SettingsPage() {
   const [error, setError] = useState('');
   const [toast, setToast] = useState('');
 
-  const [waStatus, setWaStatus] = useState(null);
-  const [waLoading, setWaLoading] = useState(true);
-  const [waBusy, setWaBusy] = useState(false);
   const [emailStatus, setEmailStatus] = useState(null);
   const [emailStatusLoading, setEmailStatusLoading] = useState(true);
 
@@ -114,7 +201,7 @@ export default function SettingsPage() {
       const res = await settingsApi.get();
       setSettings(res.data.settings);
     } catch (err) {
-      setError(err?.response?.data?.message || 'Settings load nahi ho paayi');
+      setError(err?.response?.data?.message || 'Could not load settings');
     } finally {
       setLoading(false);
     }
@@ -132,23 +219,10 @@ export default function SettingsPage() {
     }
   }, []);
 
-  const fetchWaStatus = useCallback(async () => {
-    setWaLoading(true);
-    try {
-      const res = await whatsappApi.status();
-      setWaStatus(res.data);
-    } catch {
-      setWaStatus(null);
-    } finally {
-      setWaLoading(false);
-    }
-  }, []);
-
   useEffect(() => {
     fetchSettings();
-    fetchWaStatus();
     fetchEmailStatus();
-  }, [fetchSettings, fetchWaStatus, fetchEmailStatus]);
+  }, [fetchSettings, fetchEmailStatus]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -165,37 +239,10 @@ export default function SettingsPage() {
       setSettings(res.data.settings);
       showToast('Saved');
     } catch (err) {
-      setError(err?.response?.data?.message || 'Update fail ho gaya');
+      setError(err?.response?.data?.message || 'Update failed');
       fetchSettings(); // roll back to server truth
     } finally {
       setSaving(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!window.confirm('WhatsApp disconnect karein? AI aur manual dono replies rukk jaayenge jab tak reconnect nahi karte.')) return;
-    setWaBusy(true);
-    try {
-      await whatsappApi.disconnect();
-      await fetchWaStatus();
-      showToast('WhatsApp disconnected');
-    } catch (err) {
-      alert(err?.response?.data?.message || 'Disconnect fail ho gaya');
-    } finally {
-      setWaBusy(false);
-    }
-  };
-
-  const handleReconnect = async () => {
-    setWaBusy(true);
-    try {
-      await whatsappApi.reconnect();
-      await fetchWaStatus();
-      showToast('WhatsApp reconnected');
-    } catch (err) {
-      alert(err?.response?.data?.message || 'Reconnect fail ho gaya');
-    } finally {
-      setWaBusy(false);
     }
   };
 
@@ -207,14 +254,23 @@ export default function SettingsPage() {
     );
   }
 
+  const Row = ({ icon: Icon, tone, title, help, children }) => (
+    <div className="flex items-center gap-3 px-4 py-3">
+      <span className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg ${tone}`}><Icon size={18} /></span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-semibold text-ink-900 dark:text-white">{title}</p>
+        <p className="text-xs text-ink-500 dark:text-ink-400">{help}</p>
+      </div>
+      {children}
+    </div>
+  );
+
   return (
     <div className="mx-auto max-w-3xl">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="font-display text-2xl font-bold text-ink-900 dark:text-white">Settings</h1>
-          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">
-            AI automation aur official Meta WhatsApp Cloud API yahan se control karein.
-          </p>
+          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">AI replies, alerts and email.</p>
         </div>
         {toast && (
           <span className="rounded-full bg-green-100 px-3 py-1 text-xs font-semibold text-green-700 dark:bg-green-900/30 dark:text-green-300">
@@ -229,147 +285,21 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* AI Auto Reply */}
-      <div className="card mt-6">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex gap-3">
-            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300">
-              <Bot size={20} />
-            </span>
-            <div>
-              <h2 className="text-base font-semibold text-ink-900 dark:text-white">AI Auto Reply</h2>
-              <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">
-                Jab ON ho, AI naye WhatsApp messages ka jawab khud-ba-khud deta hai.
-              </p>
-            </div>
-          </div>
-          <Toggle
-            checked={!!settings?.autoReplyEnabled}
-            disabled={saving}
-            onChange={(val) => patchSettings({ autoReplyEnabled: val })}
-          />
+      <div className="mt-5 divide-y divide-ink-100 overflow-hidden rounded-xl border border-ink-100 bg-white shadow-card dark:divide-ink-800 dark:border-ink-800 dark:bg-ink-900">
+        <Row icon={Bot} tone="bg-brand-50 text-brand-600 dark:bg-brand-900/30 dark:text-brand-300" title="AI auto reply" help="AI replies to new WhatsApp messages automatically.">
+          <Toggle checked={!!settings?.autoReplyEnabled} disabled={saving} onChange={(val) => patchSettings({ autoReplyEnabled: val })} />
+        </Row>
+        <div>
+          <Row icon={UserCog} tone="bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-300" title="Human takeover" help="Pause the AI and handle every chat yourself until you turn it off.">
+            <Toggle checked={!!settings?.aiPaused} disabled={saving} onChange={(val) => patchSettings({ aiPaused: val })} />
+          </Row>
+          {settings?.aiPaused && <p className="mx-4 mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">AI is paused — no auto-replies are being sent.</p>}
         </div>
-      </div>
-
-      {/* Human Takeover */}
-      <div className="card mt-4">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex gap-3">
-            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-purple-50 text-purple-600 dark:bg-purple-900/30 dark:text-purple-300">
-              <UserCog size={20} />
-            </span>
-            <div>
-              <h2 className="text-base font-semibold text-ink-900 dark:text-white">Human Takeover</h2>
-              <p className="mt-0.5 text-sm text-ink-500 dark:text-ink-400">
-                ON karne par AI turant pura pause ho jaata hai — saari conversations aap khud manually
-                handle karenge, jab tak wapas OFF na karein.
-              </p>
-            </div>
-          </div>
-          <Toggle
-            checked={!!settings?.aiPaused}
-            disabled={saving}
-            onChange={(val) => patchSettings({ aiPaused: val })}
-          />
-        </div>
-        {settings?.aiPaused && (
-          <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700 dark:bg-amber-900/20 dark:text-amber-300">
-            AI abhi paused hai — koi bhi lead ko auto-reply nahi jaa raha.
-          </p>
-        )}
-      </div>
-
-      {/* Owner WhatsApp alerts */}
-      <OwnerAlerts settings={settings} setSettings={setSettings} patchSettings={patchSettings} saving={saving} />
-
-      {/* Email sending: client ka apna official email */}
-      <div className="card mt-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300"><Mail size={20} /></span>
-            <div>
-              <h2 className="text-base font-semibold text-ink-900 dark:text-white">Email</h2>
-              <p className="text-sm text-ink-500 dark:text-ink-400">{emailStatusLoading ? 'Checking…' : emailStatus?.fromEmail ? `${emailStatus.fromEmail} se campaign jati hai` : 'Official email abhi connect nahi hai'}</p>
-            </div>
-          </div>
-          <Link to="/email/setup" className="btn-secondary">{emailStatus?.fromEmail ? 'Manage' : 'Connect email'}</Link>
-        </div>
-      </div>
-
-      {/* WhatsApp Settings */}
-      <div className="card mt-4">
-        <div className="flex items-center gap-3">
-          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-300">
-            <Smartphone size={20} />
-          </span>
-          <h2 className="text-base font-semibold text-ink-900 dark:text-white">WhatsApp Settings</h2>
-        </div>
-
-        {waLoading ? (
-          <div className="mt-4 flex justify-center py-6">
-            <Loader2 className="animate-spin text-ink-400" size={24} />
-          </div>
-        ) : !waStatus?.configured ? (
-          <p className="mt-4 text-sm text-ink-500 dark:text-ink-400">
-            Meta WhatsApp Cloud API abhi configured nahi hai. Backend par META_WHATSAPP_ACCESS_TOKEN aur META_WHATSAPP_PHONE_NUMBER_ID set karein.
-          </p>
-        ) : (
-          <div className="mt-4 space-y-3">
-            <div className="flex items-center justify-between border-b border-ink-50 pb-3 dark:border-ink-800">
-              <span className="text-sm text-ink-500 dark:text-ink-400">Connected Number</span>
-              <span className="text-sm font-semibold text-ink-900 dark:text-white">
-                {waStatus.phoneNumber ? `+${waStatus.phoneNumber}` : 'Not available'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between border-b border-ink-50 pb-3 dark:border-ink-800">
-              <span className="text-sm text-ink-500 dark:text-ink-400">Provider</span>
-              <span className="text-sm font-semibold text-ink-900 dark:text-white">Meta WhatsApp Cloud API</span>
-            </div>
-
-            <div className="flex items-center justify-between border-b border-ink-50 pb-3 dark:border-ink-800">
-              <span className="text-sm text-ink-500 dark:text-ink-400">Verified Name</span>
-              <span className="text-sm font-semibold text-ink-900 dark:text-white">
-                {waStatus.verifiedName || 'Not available'}
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between border-b border-ink-50 pb-3 dark:border-ink-800">
-              <span className="text-sm text-ink-500 dark:text-ink-400">Connection Status</span>
-              {waStatus.disconnected ? (
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-red-600 dark:text-red-400">
-                  <XCircle size={16} /> Disconnected
-                </span>
-              ) : (
-                <span className="flex items-center gap-1.5 text-sm font-semibold text-green-600 dark:text-green-400">
-                  <CheckCircle2 size={16} /> Connected
-                </span>
-              )}
-            </div>
-
-            <div className="flex justify-end pt-1">
-              {waStatus.disconnected ? (
-                <button
-                  onClick={handleReconnect}
-                  disabled={waBusy}
-                  className="btn-primary flex items-center gap-2"
-                >
-                  {waBusy ? <Loader2 className="animate-spin" size={16} /> : <Power size={16} />}
-                  Reconnect
-                </button>
-              ) : (
-                <button
-                  onClick={handleDisconnect}
-                  disabled={waBusy}
-                  className="btn-secondary flex items-center gap-2 !text-red-600 hover:!bg-red-50 dark:hover:!bg-red-900/20"
-                >
-                  {waBusy ? <Loader2 className="animate-spin" size={16} /> : <PowerOff size={16} />}
-                  Disconnect
-                </button>
-              )}
-            </div>
-          </div>
-        )}
+        <Row icon={Mail} tone="bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300" title="Email" help={emailStatusLoading ? 'Checking…' : emailStatus?.fromEmail ? `Campaigns send from ${emailStatus.fromEmail}` : 'No email connected'}>
+          <Link to="/email/setup" className="btn-secondary !py-1.5 text-xs">{emailStatus?.fromEmail ? 'Manage' : 'Connect'}</Link>
+        </Row>
+        <AssistantSettings settings={settings} patchSettings={patchSettings} saving={saving} />
+        <OwnerAlerts settings={settings} setSettings={setSettings} patchSettings={patchSettings} saving={saving} />
       </div>
     </div>
   );

@@ -1,85 +1,78 @@
-import { Pause, Play, Ban, RotateCcw, CalendarClock, Loader2, CheckCircle2, ChevronRight } from 'lucide-react';
+import { Pause, Play, Ban, RotateCcw, CalendarClock, Trash2 } from 'lucide-react';
 import { fmtDateTime } from './StatusChip.jsx';
 
 export const DISPLAY_STATUS = {
-  running: { label: 'Chal raha hai', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+  running: { label: 'Running', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   scheduled: { label: 'Scheduled', className: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300' },
-  active: { label: 'Chal raha hai', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
+  active: { label: 'Running', className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' },
   paused: { label: 'Paused', className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' },
-  completed: { label: 'Poora ho gaya', className: 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200' },
+  completed: { label: 'Completed', className: 'bg-brand-100 text-brand-700 dark:bg-brand-900/40 dark:text-brand-200' },
   cancelled: { label: 'Cancelled', className: 'bg-ink-100 text-ink-500 dark:bg-ink-800 dark:text-ink-400' },
 };
 
-function ChannelBar({ label, s, color }) {
-  const done = s.sent + s.failed + s.cancelled;
-  const pct = s.total ? Math.round((done / s.total) * 100) : 0;
-  const sentPct = s.total ? (s.sent / s.total) * 100 : 0;
-  const failPct = s.total ? (s.failed / s.total) * 100 : 0;
+const num = (v) => Number(v || 0).toLocaleString('en-IN');
+
+function IconBtn({ title, onClick, disabled, danger, children }) {
   return (
-    <div>
-      <div className="mb-1 flex items-center justify-between text-xs text-ink-600 dark:text-ink-300">
-        <span className="flex items-center gap-1 font-medium">{s.processing > 0 && <Loader2 size={11} className="animate-spin text-brand-600" />}{label}</span>
-        <span>
-          <b className="text-ink-900 dark:text-white">{s.sent.toLocaleString('en-IN')}</b>/{s.total.toLocaleString('en-IN')} gaye · {pct}%
-          {s.failed > 0 && <span className="text-red-600"> · {s.failed} fail</span>}
-        </span>
-      </div>
-      <div className="flex h-2 overflow-hidden rounded-full bg-ink-100 dark:bg-ink-800">
-        <div className={`${color} transition-all duration-500`} style={{ width: `${sentPct}%` }} />
-        <div className="bg-red-500 transition-all duration-500" style={{ width: `${failPct}%` }} />
-      </div>
-    </div>
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={disabled}
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold transition disabled:opacity-50 ${danger ? 'border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900' : 'border-ink-200 text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:text-ink-300 dark:hover:bg-ink-800'}`}
+    >
+      {children}
+    </button>
   );
 }
 
-/** channel = jis outreach page par card dikh raha hai */
+/** Compact campaign tile: total · sent · failed, plus quick actions. */
 export default function CampaignCard({ campaign, channel, selected, onSelect, onAction, busy }) {
   const c = campaign;
-  const wa = c.stats.whatsapp;
-  const em = c.stats.email;
-  const failed = (c.channels.whatsapp ? wa.failed : 0) + (c.channels.email ? em.failed : 0);
+  const s = c.stats?.[channel] || { total: 0, sent: 0, failed: 0, pending: 0, paused: 0, processing: 0 };
+  const pending = Math.max(0, (s.pending || 0) + (s.paused || 0) + (s.processing || 0));
   const canPause = c.status === 'active';
   const canResume = c.status === 'paused';
   const canCancel = c.status === 'active' || c.status === 'paused';
+  // Finished / cancelled campaigns can be deleted (history only; contacts stay).
+  const canDelete = !canCancel;
   const status = DISPLAY_STATUS[c.displayStatus || c.status] || DISPLAY_STATUS.active;
   const startsAt = c.startsAt ? new Date(c.startsAt) : null;
-  const multiDay = c.totalDays > 1;
 
   return (
-    <div className={`rounded-xl border p-4 transition ${selected ? 'border-brand-500 bg-brand-50/50 ring-2 ring-brand-500/10 dark:bg-brand-950/30' : 'border-ink-100 bg-white hover:border-ink-200 dark:border-ink-800 dark:bg-ink-900'}`}>
-      <button type="button" onClick={onSelect} className="flex w-full items-start justify-between gap-2 text-left">
-        <div className="min-w-0">
-          <p className="truncate font-display font-semibold text-ink-900 dark:text-white">{c.name}</p>
-          <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-500 dark:text-ink-400">
-            <span>{c.totalLeads.toLocaleString('en-IN')} contacts</span>
-            {startsAt && (
-              <span className="inline-flex items-center gap-1">
-                <CalendarClock size={12} />
-                {c.displayStatus === 'scheduled' ? 'Shuru hoga' : 'Shuru hua'}: <b className="text-ink-700 dark:text-ink-200">{fmtDateTime(startsAt)}</b>
-              </span>
-            )}
-            {multiDay && <span>{c.dailyLimit.toLocaleString('en-IN')}/din · {c.totalDays} din</span>}
-            {c.completedAt && <span className="inline-flex items-center gap-1"><CheckCircle2 size={12} /> {fmtDateTime(c.completedAt)}</span>}
-          </p>
-        </div>
-        <span className="flex shrink-0 items-center gap-1">
-          <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${status.className}`}>{status.label}</span>
-          <ChevronRight size={16} className={`text-ink-300 transition ${selected ? 'rotate-90 text-brand-600' : ''}`} />
-        </span>
-      </button>
-
-      <div className="mt-3 space-y-2.5">
-        {c.channels.whatsapp && <ChannelBar label="WhatsApp" s={wa} color="bg-green-500" />}
-        {c.channels.email && <ChannelBar label="Email" s={em} color="bg-brand-500" />}
-        {c.channels.email && c.leadsWithoutEmail > 0 && <p className="text-xs text-ink-500 dark:text-ink-400">{c.leadsWithoutEmail} contacts ke paas email nahi tha.</p>}
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onSelect())}
+      className={`cursor-pointer rounded-xl border p-3.5 transition ${selected ? 'border-brand-500 bg-brand-50/60 ring-2 ring-brand-500/15 dark:bg-brand-950/30' : 'border-ink-100 bg-white hover:border-ink-300 hover:shadow-sm dark:border-ink-800 dark:bg-ink-900'}`}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 truncate text-sm font-semibold text-ink-900 dark:text-white" title={c.name}>{c.name}</p>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${status.className}`}>{status.label}</span>
       </div>
+      {startsAt && (
+        <p className="mt-1 flex items-center gap-1 text-[11px] text-ink-400">
+          <CalendarClock size={11} /> {fmtDateTime(startsAt)}{c.totalDays > 1 ? ` · ${num(c.dailyLimit)}/day · ${c.totalDays} days` : ''}{c.notScheduled > 0 ? ` · ${num(c.notScheduled)} not scheduled` : ''}
+        </p>
+      )}
 
-      {(canPause || canResume || failed > 0 || canCancel) && (
-        <div className="mt-3 flex flex-wrap gap-2">
-          {canPause && <button type="button" disabled={busy} onClick={() => onAction('pause', c)} className="btn-secondary !px-3 !py-1.5 !text-xs"><Pause size={13} className="mr-1.5" /> Pause</button>}
-          {canResume && <button type="button" disabled={busy} onClick={() => onAction('resume', c)} className="btn-secondary !px-3 !py-1.5 !text-xs"><Play size={13} className="mr-1.5" /> Resume</button>}
-          {failed > 0 && <button type="button" disabled={busy} onClick={() => onAction('retry', c, channel)} className="btn-secondary !px-3 !py-1.5 !text-xs"><RotateCcw size={13} className="mr-1.5" /> {failed} fail dobara bhejein</button>}
-          {canCancel && <button type="button" disabled={busy} onClick={() => onAction('cancel', c)} className="btn-secondary !px-3 !py-1.5 !text-xs !text-red-600"><Ban size={13} className="mr-1.5" /> Cancel</button>}
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <div className="rounded-lg bg-ink-50 py-1.5 dark:bg-ink-800/60"><p className="text-[10px] text-ink-500">Total</p><p className="text-sm font-bold tabular-nums text-ink-900 dark:text-white">{num(s.total)}</p></div>
+        <div className="rounded-lg bg-green-50 py-1.5 dark:bg-green-900/20"><p className="text-[10px] text-green-700 dark:text-green-300">Sent</p><p className="text-sm font-bold tabular-nums text-green-700 dark:text-green-300">{num(s.sent)}</p></div>
+        <div className="rounded-lg bg-red-50 py-1.5 dark:bg-red-900/20"><p className="text-[10px] text-red-600 dark:text-red-300">Failed</p><p className="text-sm font-bold tabular-nums text-red-600 dark:text-red-300">{num(s.failed)}</p></div>
+      </div>
+      {pending > 0 && <p className="mt-1.5 text-[11px] text-ink-400">{num(pending)} pending</p>}
+      {channel === 'email' && c.leadsWithoutEmail > 0 && <p className="mt-1 text-[11px] text-ink-400">{num(c.leadsWithoutEmail)} without email</p>}
+
+      {(canPause || canResume || s.failed > 0 || canCancel || canDelete) && (
+        <div className="mt-2.5 flex flex-wrap gap-1.5">
+          {canPause && <IconBtn title="Pause" disabled={busy} onClick={() => onAction('pause', c)}><Pause size={12} /> Pause</IconBtn>}
+          {canResume && <IconBtn title="Resume" disabled={busy} onClick={() => onAction('resume', c)}><Play size={12} /> Resume</IconBtn>}
+          {s.failed > 0 && <IconBtn title="Retry failed" disabled={busy} onClick={() => onAction('retry', c, channel)}><RotateCcw size={12} /> Retry {num(s.failed)}</IconBtn>}
+          {canCancel && <IconBtn title="Cancel campaign" danger disabled={busy} onClick={() => onAction('cancel', c)}><Ban size={12} /> Cancel</IconBtn>}
+          {canDelete && <IconBtn title="Delete campaign" danger disabled={busy} onClick={() => onAction('delete', c)}><Trash2 size={12} /> Delete</IconBtn>}
         </div>
       )}
     </div>
