@@ -1,0 +1,186 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { X, Send, Loader2, Bot, UserRound, Sparkles, CalendarCheck, ChevronDown } from 'lucide-react';
+import { conversationApi } from '../api/conversationApi.js';
+import { getSocket } from '../lib/socket.js';
+import MessageBubble from '../features/conversations/MessageBubble.jsx';
+import AiLimitBar from '../features/saas/AiLimitBar.jsx';
+import { WindowClosedBar, WindowOpenHint, TemplateSendModal } from './WhatsAppWindow.jsx';
+import { useCan } from '../store/authStore.js';
+
+/**
+ * Opens a lead's chat in a popup on the current page (no redirect to the AI inbox).
+ * Pass leadId or conversationId. You can read messages and reply.
+ */
+/** Short AI summary of the chat, score and booked visit — shown on top of the popup. */
+function SummaryStrip({ active }) {
+  const [open, setOpen] = useState(false);
+  const conv = active.conversation;
+  const lead = conv.leadId || {};
+  const req = conv.collectedRequirements || {};
+  const visit = (active.insights?.meetings || [])[0];
+  const score = Number(lead.leadScore ?? conv.currentLeadScore ?? 0);
+  const [first, ...more] = String(conv.aiSummary || '').split('\n').map((l) => l.trim()).filter(Boolean);
+  const chips = [req.bhk && `${String(req.bhk).replace(/\s*bhk/i, '')} BHK`, req.propertyType, req.location || req.city || lead.city].filter(Boolean);
+  const tone = score > 60 ? 'bg-red-50 text-red-700 ring-red-200' : score > 30 ? 'bg-amber-50 text-amber-700 ring-amber-200' : 'bg-ink-50 text-ink-600 ring-ink-200';
+  return (
+    <div className="border-b border-ink-100 bg-gradient-to-r from-emerald-50/70 to-sky-50/60 px-5 py-3 dark:border-ink-800 dark:from-emerald-950/20 dark:to-sky-950/10">
+      <div className="flex items-start gap-3">
+        <Sparkles size={16} className="mt-0.5 shrink-0 text-emerald-600" />
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-700 dark:text-emerald-300">Chat summary</p>
+          <p className={`mt-0.5 text-sm leading-6 text-ink-700 dark:text-ink-200 ${open ? '' : 'line-clamp-2'}`}>{first || 'The summary appears after the customer replies.'}</p>
+          {open && more.length > 0 && <p className="mt-1 whitespace-pre-line text-xs leading-5 text-ink-500 dark:text-ink-400">{more.join('\n')}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] font-semibold">
+            <span className={`rounded-full px-2 py-0.5 ring-1 ring-inset ${tone}`}>Score {score}/100</span>
+            {chips.map((c) => <span key={c} className="rounded-full bg-white px-2 py-0.5 text-ink-600 ring-1 ring-inset ring-ink-200 dark:bg-ink-900 dark:text-ink-300 dark:ring-ink-700">{c}</span>)}
+            {visit && <span className="inline-flex items-center gap-1 rounded-full bg-teal-50 px-2 py-0.5 text-teal-700 ring-1 ring-inset ring-teal-200"><CalendarCheck size={11} /> Visit {visit.preferredDate}{visit.preferredTime ? ` · ${visit.preferredTime}` : ''}</span>}
+            {(first && (more.length > 0 || first.length > 140)) && (
+              <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-0.5 text-emerald-700 hover:underline dark:text-emerald-300">{open ? 'Less' : 'More'} <ChevronDown size={12} className={open ? 'rotate-180' : ''} /></button>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+export default function ChatPopup({ leadId, conversationId, name, onClose }) {
+  const canReply = useCan()('chatReply');
+  const [active, setActive] = useState(null); // { conversation, messages }
+  const [error, setError] = useState('');
+  const [text, setText] = useState('');
+  const [sending, setSending] = useState(false);
+  const [templateOpen, setTemplateOpen] = useState(false);
+  const bottomRef = useRef(null);
+
+  const load = useCallback(async () => {
+    setError('');
+    try {
+      let id = conversationId;
+      if (!id) {
+        const res = await conversationApi.list({ leadId, limit: 1 });
+        id = res.data.conversations?.[0]?._id;
+      }
+      if (!id) { setError('No chat with this lead yet.'); return; }
+      const res = await conversationApi.get(id);
+      setActive(res.data);
+      if (res.data.conversation.unreadCount > 0) conversationApi.markRead(id).catch(() => {});
+    } catch (e) {
+      setError(e?.response?.data?.message || 'Could not load chat');
+    }
+  }, [leadId, conversationId]);
+
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [active?.messages]);
+
+  // Show new messages instantly
+  useEffect(() => {
+    const id = active?.conversation?._id;
+    if (!id) return undefined;
+    const socket = getSocket();
+    const onNew = ({ conversationId: cid, message }) => {
+      if (cid !== id) return;
+      setActive((p) => {
+        if (!p) return p;
+        const inbound = message.direction === 'inbound';
+        const conversation = inbound ? { ...p.conversation, lastInboundAt: message.timestamp || new Date().toISOString(), windowOpen: true } : p.conversation;
+        return p.messages.some((m) => m._id === message._id) ? { ...p, conversation } : { ...p, conversation, messages: [...p.messages, message] };
+      });
+    };
+    socket.on('conversation:newMessage', onNew);
+    const onAiLimit = ({ conversationId: cid, limit, replies, reached, planName }) => {
+      if (String(cid) !== String(id)) return;
+      setActive((p) => (p ? { ...p, conversation: { ...p.conversation, aiLimit: { limit, replies, reached, planName } } } : p));
+    };
+    socket.on('conversation:aiLimit', onAiLimit);
+    return () => { socket.off('conversation:newMessage', onNew); socket.off('conversation:aiLimit', onAiLimit); };
+  }, [active?.conversation?._id]);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const send = async (e) => {
+    e.preventDefault();
+    const body = text.trim();
+    if (!body || !active) return;
+    setSending(true);
+    setError('');
+    try {
+      const res = await conversationApi.sendMessage(active.conversation._id, body);
+      setText('');
+      const sent = res?.data?.message;
+      if (sent) setActive((p) => (p && !p.messages.some((m) => m._id === sent._id) ? { ...p, messages: [...p.messages, sent] } : p));
+    } catch (err) {
+      if (err?.response?.data?.details?.code === 'WHATSAPP_24H_WINDOW_CLOSED') {
+        setActive((p) => (p ? { ...p, conversation: { ...p.conversation, windowOpen: false } } : p));
+      } else {
+        setError(err?.response?.data?.message || 'Message not sent');
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const manual = active?.conversation?.status === 'manual';
+  const conv = active?.conversation;
+  const windowOpen = conv ? (conv.windowOpen ?? Boolean(conv.lastInboundAt && Date.now() - new Date(conv.lastInboundAt).getTime() < 86400000)) : true;
+  const toggleAI = async () => {
+    const id = active.conversation._id;
+    try {
+      const res = await (manual ? conversationApi.resumeAI(id) : conversationApi.takeover(id));
+      setActive((p) => ({ ...p, conversation: { ...res.data.conversation, aiLimit: p.conversation?.aiLimit } }));
+    } catch (err) {
+      setError(err?.response?.data?.message || 'Action failed');
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+      <div className="flex h-[min(90vh,860px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-ink-900" role="dialog" aria-label="Chat">
+        <div className="flex items-center justify-between gap-3 border-b border-ink-100 px-5 py-3 dark:border-ink-800">
+          <div className="min-w-0">
+            <p className="truncate font-semibold text-ink-900 dark:text-white">{name || active?.conversation?.leadId?.name || 'Chat'}</p>
+            {active && <p className="text-xs text-ink-500">{active.conversation?.leadId?.phone ? `+${String(active.conversation.leadId.phone).replace(/^\+/, '')} · ` : ''}{manual ? 'You are replying' : 'AI is replying'}</p>}
+          </div>
+          <div className="flex items-center gap-2">
+            {active && (
+              <button type="button" onClick={toggleAI} className="btn-secondary flex items-center gap-1.5 !px-2.5 !py-1.5 text-xs">
+                {manual ? <><Bot size={13} /> Resume AI</> : <><UserRound size={13} /> Take over</>}
+              </button>
+            )}
+            <button type="button" onClick={onClose} className="rounded-lg p-1.5 text-ink-500 hover:bg-ink-100 dark:hover:bg-ink-800" aria-label="Close"><X size={18} /></button>
+          </div>
+        </div>
+
+        {active && <SummaryStrip active={active} />}
+
+        <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overflow-x-hidden bg-ink-50/60 p-4 sm:px-6 dark:bg-ink-950/30">
+          {!active && !error && <div className="flex justify-center py-10"><Loader2 className="animate-spin text-ink-400" /></div>}
+          {!active && error && <p className="py-10 text-center text-sm text-ink-500">{error}</p>}
+          {active?.messages.map((m) => <MessageBubble key={m._id} conversationId={active.conversation._id} message={m} onOpenImage={(url) => window.open(url, '_blank', 'noopener')} />)}
+          <div ref={bottomRef} />
+        </div>
+
+        <AiLimitBar aiLimit={conv?.aiLimit} onNavigate={onClose} />
+        {conv?.aiSkipReason && !conv?.aiLimit?.reached && conv.status !== 'manual' && conv.status !== 'closed' && !conv.optedOut && <p role="status" className="border-t border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-900/10 dark:text-amber-200"><b>AI skipped the last reply:</b> {conv.aiSkipReason}</p>}
+        {active && !windowOpen && canReply && <WindowClosedBar neverReplied={!conv?.lastInboundAt} onTemplate={() => setTemplateOpen(true)} />}
+        {active && windowOpen && (
+          !canReply ? <div className="border-t border-ink-100 px-4 py-3 text-center text-xs text-ink-500 dark:border-ink-800">View only — you don’t have permission to reply to chats.</div> : <form onSubmit={send} className="border-t border-ink-100 dark:border-ink-800">
+            <WindowOpenHint lastInboundAt={conv?.lastInboundAt} />
+            <div className="p-3">
+              {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+              <div className="flex gap-2">
+                <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type a message…" className="input-field flex-1" />
+                <button type="submit" disabled={sending || !text.trim()} className="btn-primary flex items-center gap-1.5">{sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />}</button>
+              </div>
+            </div>
+          </form>
+        )}
+      </div>
+      {templateOpen && active && <TemplateSendModal leadId={conv?.leadId?._id || leadId} leadName={name || conv?.leadId?.name} onClose={() => setTemplateOpen(false)} onSent={() => setTimeout(() => setTemplateOpen(false), 900)} />}
+    </div>
+  );
+}

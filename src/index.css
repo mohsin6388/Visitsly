@@ -1,0 +1,122 @@
+/* @tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-ink-950;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-brand-700 active:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-ink-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 shadow-card transition hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:hover:bg-ink-800;
+  }
+  .input-field {
+    @apply w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:focus:ring-brand-900;
+  }
+  .card {
+    @apply rounded-xl2 border border-ink-100 bg-white p-6 shadow-card dark:border-ink-800 dark:bg-ink-900;
+  }
+}
+
+
+.sidebar-scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sidebar-scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+} */
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply scroll-smooth;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-brand-500 ring-offset-2 ring-offset-white dark:ring-offset-ink-950;
+  }
+}
+
+@layer components {
+  /* Login / auth pages (landing-page look) */
+  .auth-input {
+    @apply w-full rounded-xl border border-[#dbe3f5] bg-white py-3 text-sm text-lp-ink shadow-sm outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-lp-teal focus:ring-4 focus:ring-lp-teal/15;
+  }
+  .auth-social {
+    @apply flex items-center justify-center gap-3 rounded-xl border border-[#dbe3f5] bg-white px-4 py-3 text-sm font-semibold text-lp-ink shadow-sm transition hover:-translate-y-0.5 hover:border-lp-teal hover:shadow-md focus:outline-none focus-visible:ring-4 focus-visible:ring-lp-teal/20;
+  }
+  .auth-cta {
+    @apply flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-[#3B4FE0] to-[#0EA5E9] px-5 py-3 text-[15px] font-semibold text-white shadow-[0_10px_24px_-10px_rgba(59,79,224,.7)] transition hover:brightness-110 focus:outline-none focus-visible:ring-4 focus-visible:ring-lp-teal/30 disabled:cursor-not-allowed disabled:opacity-70;
+  }
+  .btn-primary {
+    @apply inline-flex items-center justify-center rounded-lg bg-brand-600 px-4 py-2.5 text-sm font-semibold text-white shadow-card transition hover:bg-brand-700 active:bg-brand-800 disabled:cursor-not-allowed disabled:opacity-60;
+  }
+  .btn-secondary {
+    @apply inline-flex items-center justify-center rounded-lg border border-ink-200 bg-white px-4 py-2.5 text-sm font-semibold text-ink-700 shadow-card transition hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:hover:bg-ink-800;
+  }
+  .input-field {
+    @apply w-full rounded-lg border border-ink-200 bg-white px-3.5 py-2.5 text-sm text-ink-900 placeholder:text-ink-400 outline-none transition focus:border-brand-500 focus:ring-2 focus:ring-brand-100 dark:border-ink-700 dark:bg-ink-900 dark:text-ink-100 dark:focus:ring-brand-900;
+  }
+  .card {
+    @apply rounded-xl2 border border-ink-100 bg-white p-6 shadow-card dark:border-ink-800 dark:bg-ink-900;
+  }
+}
+
+/* Keep long navigation usable on short screens without showing a scrollbar. */
+.sidebar-scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.sidebar-scrollbar-hide::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* App screens: a calmer, medium density at 100% browser zoom. Tailwind sizes are rem-based,
+   so this scales the whole dashboard (text, spacing, icons in rem) in one place. */
+html.app-compact { font-size: 14px; }
+
+/* Shimmer loader used by skeletons */
+@keyframes shimmer {
+  100% { transform: translateX(100%); }
+}
+.skeleton-shimmer { position: relative; overflow: hidden; }
+.skeleton-shimmer::after {
+  content: ''; position: absolute; inset: 0; transform: translateX(-100%);
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.55), transparent);
+  animation: shimmer 1.3s infinite;
+}
+.dark .skeleton-shimmer::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,.06), transparent); }
+.top-loadbar { position: relative; height: 2px; overflow: hidden; }
+.top-loadbar::after { content: ''; position: absolute; inset: 0; width: 35%; background: #10b981; animation: loadbar 1.1s ease-in-out infinite; }
+
+@keyframes loadbar {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
+}

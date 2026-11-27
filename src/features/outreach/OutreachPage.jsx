@@ -1,0 +1,738 @@
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import {
+  useQuery,
+  useQueryClient,
+  keepPreviousData,
+} from "@tanstack/react-query";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  MessageCircle,
+  Mail,
+  Loader2,
+  Send,
+  CheckCircle2,
+  Clock,
+  XCircle,
+  ChevronLeft,
+  ChevronRight,
+  Search,
+  X,
+  Rocket,
+  AlertTriangle,
+  RefreshCw,
+  Info,
+} from "lucide-react";
+import { outreachApi, campaignApi } from "../../api/outreachApi.js";
+import {
+  useOutreachEvents,
+  useOutreachSummaryQuery,
+  SUMMARY_KEY,
+} from "../../hooks/useOutreachLive.js";
+import StatusChip, { fmtDateTime } from "./StatusChip.jsx";
+import CampaignCard from "./CampaignCard.jsx";
+import CampaignLauncher from "./CampaignLauncher.jsx";
+import {
+  Skeleton,
+  SkeletonCards,
+  ErrorInfo,
+  EmptyState,
+  toast,
+  showDialog,
+  showSendError,
+  confirmDialog,
+} from "../../components/ui/index.jsx";
+import { errText } from "../../lib/saas.jsx";
+
+const CAMPAIGNS_KEY = ["outreach", "campaigns"];
+
+const CHANNEL_META = {
+  whatsapp: {
+    title: "WhatsApp Campaigns",
+    subtitle: "Bulk messages with approved templates.",
+    icon: MessageCircle,
+    contact: (j) => j.phone,
+  },
+  email: {
+    title: "Email Campaigns",
+    subtitle: "Bulk emails with live delivery status.",
+    icon: Mail,
+    contact: (j) => j.email || "—",
+  },
+};
+
+// Most-used filters stay as buttons; the rest live in a dropdown.
+const CAMPAIGN_MAIN = [
+  { value: "", label: "All" },
+  { value: "running", label: "Running" },
+  { value: "scheduled", label: "Scheduled" },
+  { value: "completed", label: "Completed" },
+];
+const CAMPAIGN_MORE = [
+  { value: "paused", label: "Paused" },
+  { value: "cancelled", label: "Cancelled" },
+];
+
+const JOB_MAIN = [
+  { value: "", label: "All" },
+  { value: "sent", label: "Sent" },
+  { value: "failed", label: "Failed" },
+];
+const JOB_MORE = [
+  { value: "processing", label: "Sending now" },
+  { value: "pending", label: "Queued" },
+  { value: "scheduled", label: "Scheduled" },
+];
+
+/** Buttons for the common filters + a dropdown for the rarely used ones. */
+function FilterBar({ value, onChange, main, more, moreLabel = "More filters", label }) {
+  const inMore = more.some((item) => item.value === value);
+  return (
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={label}>
+      {main.map((item) => (
+        <button
+          key={item.value || "all"}
+          type="button"
+          aria-pressed={value === item.value}
+          onClick={() => onChange(item.value)}
+          className={`rounded-full px-3 py-1 text-xs font-semibold transition ${value === item.value ? "bg-brand-600 text-white" : "bg-ink-100 text-ink-600 hover:bg-ink-200 dark:bg-ink-800 dark:text-ink-300 dark:hover:bg-ink-700"}`}
+        >
+          {item.label}
+        </button>
+      ))}
+      <select
+        aria-label={moreLabel}
+        value={inMore ? value : ""}
+        onChange={(e) => onChange(e.target.value || (inMore ? "" : value))}
+        className={`rounded-full border px-3 py-1 text-xs font-semibold outline-none transition ${inMore ? "border-brand-600 bg-brand-600 text-white" : "border-ink-200 bg-white text-ink-600 hover:bg-ink-50 dark:border-ink-700 dark:bg-ink-800 dark:text-ink-300"}`}
+      >
+        <option value="" className="text-ink-900">{inMore ? "Clear filter" : moreLabel}</option>
+        {more.map((item) => (
+          <option key={item.value} value={item.value} className="text-ink-900">{item.label}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, label, value, tone, hint, loading }) {
+  return (
+    <div className="card !p-4">
+      <div className="flex items-center gap-3">
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-lg ${tone}`}
+        >
+          <Icon size={18} />
+        </span>
+        <div>
+          <p className="text-xs text-ink-500 dark:text-ink-400">{label}</p>
+          {loading ? (
+            <Skeleton className="mt-1 h-6 w-14" />
+          ) : (
+            <p className="font-display text-xl font-bold text-ink-900 dark:text-white">
+              {Number(value || 0).toLocaleString("en-IN")}
+            </p>
+          )}
+        </div>
+      </div>
+      {hint && (
+        <p className="mt-2 text-xs text-ink-500 dark:text-ink-400">{hint}</p>
+      )}
+    </div>
+  );
+}
+
+export default function OutreachPage({ channel }) {
+  const meta = CHANNEL_META[channel];
+  const Icon = meta.icon;
+  const qc = useQueryClient();
+
+  const [campaignTab, setCampaignTab] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [search, setSearch] = useState("");
+  const [campaignLimit, setCampaignLimit] = useState(20);
+  const [filter, setFilter] = useState("");
+  const [campaignId, setCampaignId] = useState("");
+  const [page, setPage] = useState(1);
+  const [nowSending, setNowSending] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const contactsRef = useRef(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialTemplate = searchParams.get("template") || "";
+  const [launchOpen, setLaunchOpen] = useState(
+    () => Boolean(initialTemplate) || searchParams.get("new") === "1",
+  );
+  const closeLauncher = () => {
+    setLaunchOpen(false);
+    if (searchParams.get("template") || searchParams.get("new"))
+      setSearchParams({}, { replace: true });
+  };
+
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+  useEffect(() => {
+    setCampaignLimit(20);
+  }, [campaignTab, search, channel]);
+
+  /* ---------------- data ---------------- */
+  const { data: summaryAll, isLoading: summaryLoading } =
+    useOutreachSummaryQuery();
+  const stats = summaryAll?.[channel];
+
+  const campaignsKey = [
+    ...CAMPAIGNS_KEY,
+    channel,
+    campaignTab,
+    search,
+    campaignLimit,
+  ];
+  const {
+    data: campaignsData,
+    isLoading: campaignsLoading,
+    isFetching: campaignsFetching,
+    error: campaignsError,
+    refetch: refetchCampaigns,
+  } = useQuery({
+    queryKey: campaignsKey,
+    queryFn: () =>
+      campaignApi
+        .list({
+          channel,
+          limit: campaignLimit,
+          ...(campaignTab ? { status: campaignTab } : {}),
+          ...(search ? { search } : {}),
+        })
+        .then((r) => r.data),
+    placeholderData: keepPreviousData,
+    staleTime: 10_000,
+  });
+  const campaigns = useMemo(
+    () => (campaignsData?.campaigns || []).filter((c) => c.channels?.[channel]),
+    [campaignsData, channel],
+  );
+  const selectedCampaign = campaigns.find((c) => c._id === campaignId) || null;
+
+  const jobsKey = ["outreach", "jobs", channel, campaignId, filter, page];
+  const {
+    data: jobsData,
+    isLoading,
+    isFetching,
+    error: jobsError,
+  } = useQuery({
+    queryKey: jobsKey,
+    queryFn: () =>
+      outreachApi
+        .jobs({
+          channel,
+          page,
+          limit: 50,
+          ...(campaignId ? { campaignId } : {}),
+          ...(filter ? { status: filter } : {}),
+        })
+        .then((r) => r.data),
+    placeholderData: keepPreviousData,
+    staleTime: 15_000,
+  });
+  const jobs = jobsData?.jobs || [];
+  const pagination = jobsData?.pagination;
+
+  /* ---------------- live events ---------------- */
+  const refreshAll = useCallback(() => {
+    qc.invalidateQueries({ queryKey: CAMPAIGNS_KEY });
+    qc.invalidateQueries({ queryKey: ["outreach", "jobs"] });
+    qc.invalidateQueries({ queryKey: SUMMARY_KEY });
+  }, [qc]);
+
+  useOutreachEvents({
+    onJob: (p) => {
+      if (p.channel !== channel) return;
+      if (p.status === "processing")
+        setNowSending({
+          jobId: p.jobId,
+          name: p.name,
+          contact: channel === "email" ? p.email : p.phone,
+        });
+      else setNowSending((cur) => (cur?.jobId === p.jobId ? null : cur));
+      qc.setQueriesData({ queryKey: ["outreach", "jobs", channel] }, (old) => {
+        if (!old?.jobs) return old;
+        return {
+          ...old,
+          jobs: old.jobs.map((j) =>
+            j.id === p.jobId
+              ? {
+                  ...j,
+                  status: p.status,
+                  attempts: p.attempts,
+                  sentAt: p.sentAt,
+                  nextRunAt: p.nextRunAt,
+                  lastError: p.lastError,
+                  scheduled:
+                    p.status === "pending" &&
+                    new Date(p.nextRunAt) > new Date(),
+                }
+              : j,
+          ),
+        };
+      });
+    },
+    onProgress: (p) => {
+      qc.setQueriesData({ queryKey: CAMPAIGNS_KEY }, (old) => {
+        if (!old?.campaigns) return old;
+        return {
+          ...old,
+          campaigns: old.campaigns.map((c) =>
+            String(c._id) === p.campaignId
+              ? {
+                  ...c,
+                  stats: p.stats,
+                  displayStatus:
+                    c.displayStatus === "scheduled" &&
+                    (p.stats?.[channel]?.sent || p.stats?.[channel]?.processing)
+                      ? "running"
+                      : c.displayStatus,
+                }
+              : c,
+          ),
+        };
+      });
+    },
+    onCampaign: refreshAll,
+    onReconnect: refreshAll,
+  });
+
+  /* ---------------- actions ---------------- */
+  const handleAction = async (action, campaign, ch) => {
+    if (
+      action === "cancel" &&
+      !(await confirmDialog({
+        title: `Cancel "${campaign.name}"?`,
+        message: "Unsent messages will not go out. Already sent messages are not affected.",
+        confirmLabel: "Cancel campaign",
+        cancelLabel: "Keep running",
+        danger: true,
+      }))
+    )
+      return;
+    if (
+      action === "delete" &&
+      !(await confirmDialog({
+        title: `Delete "${campaign.name}"?`,
+        message: "The campaign and its send history are removed. Your contacts and their chats stay.",
+        confirmLabel: "Delete campaign",
+        danger: true,
+      }))
+    )
+      return;
+    setBusy(true);
+    try {
+      const id = campaign._id;
+      let res;
+      if (action === "pause") res = await campaignApi.pause(id);
+      if (action === "resume") res = await campaignApi.resume(id);
+      if (action === "cancel") res = await campaignApi.cancel(id);
+      if (action === "retry") res = await campaignApi.retryFailed(id, ch);
+      if (action === "delete") {
+        res = await campaignApi.remove(id);
+        if (campaignId === String(id)) setCampaignId("");
+      }
+      toast.success(res?.message || "Done");
+      refreshAll();
+    } catch (err) {
+      showDialog({ title: "Action failed", message: errText(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  /* ---------------- derived ---------------- */
+  const s = stats || {
+    total: 0,
+    sent: 0,
+    failed: 0,
+    pending: 0,
+    processing: 0,
+    paused: 0,
+    scheduled: 0,
+  };
+  const queued = s.pending + s.paused;
+  const pct = s.total ? Math.round((s.sent / s.total) * 100) : 0;
+  const todayDue = s.pending - s.scheduled;
+
+  return (
+    <div className="mx-auto max-w-[1400px]">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="flex items-center gap-2 font-display text-2xl font-bold text-ink-900 dark:text-white">
+            <Icon size={24} className="text-brand-600" /> {meta.title}
+          </h1>
+          <p className="mt-1 text-sm text-ink-500 dark:text-ink-400">
+            {meta.subtitle}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setLaunchOpen(true)}
+          className="btn-primary flex items-center gap-2"
+        >
+          <Send size={16} /> New campaign
+        </button>
+      </div>
+
+      <div
+        className={`mt-5 flex items-center gap-3 rounded-xl border px-4 py-3 text-sm transition ${nowSending || s.processing > 0 ? "border-brand-200 bg-brand-50 text-brand-800 dark:border-brand-800 dark:bg-brand-950/40 dark:text-brand-100" : "border-ink-100 bg-white text-ink-500 dark:border-ink-800 dark:bg-ink-900 dark:text-ink-400"}`}
+        aria-live="polite"
+      >
+        {nowSending ? (
+          <>
+            <Loader2 size={18} className="animate-spin" />
+            <span>
+              Sending now: <b>{nowSending.name}</b>{" "}
+              {nowSending.contact && (
+                <span className="opacity-70">({nowSending.contact})</span>
+              )}
+            </span>
+          </>
+        ) : s.processing > 0 ? (
+          <>
+            <Loader2 size={18} className="animate-spin" /> Sending messages…
+          </>
+        ) : queued > 0 && summaryAll?.[channel]?.nextRunAt ? (
+          <>
+            <Clock size={18} /> Next batch:{" "}
+            <b>{fmtDateTime(summaryAll[channel].nextRunAt)}</b>
+          </>
+        ) : (
+          <>
+            <CheckCircle2 size={18} /> Nothing sending right now
+          </>
+        )}
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <StatCard
+          icon={Send}
+          label="Total"
+          value={s.total}
+          tone="bg-ink-100 text-ink-600 dark:bg-ink-800 dark:text-ink-300"
+          hint={`${pct}% done`}
+          loading={summaryLoading}
+        />
+        <StatCard
+          icon={CheckCircle2}
+          label="Sent"
+          value={s.sent}
+          tone="bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300"
+          loading={summaryLoading}
+        />
+        <StatCard
+          icon={Clock}
+          label="Pending"
+          value={queued}
+          tone="bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300"
+          hint={
+            s.scheduled
+              ? `${s.scheduled} scheduled${todayDue > 0 ? `, ${todayDue} queued` : ""}`
+              : undefined
+          }
+          loading={summaryLoading}
+        />
+        <StatCard
+          icon={XCircle}
+          label="Failed"
+          value={s.failed}
+          tone="bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300"
+          loading={summaryLoading}
+        />
+      </div>
+      {/* Campaigns */}
+      <section className="mt-8">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 font-display text-lg font-semibold text-ink-900 dark:text-white">
+            Campaigns{" "}
+            {campaignsFetching && !campaignsLoading && (
+              <Loader2 size={15} className="animate-spin text-ink-400" />
+            )}
+          </h2>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative">
+              <Search
+                size={14}
+                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-400"
+              />
+              <input
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Campaign search"
+                className="w-44 rounded-lg border border-ink-200 py-1.5 pl-8 pr-7 text-sm dark:border-ink-700 dark:bg-ink-800 dark:text-white"
+              />
+              {searchInput && (
+                <button
+                  type="button"
+                  onClick={() => setSearchInput("")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-ink-400"
+                  aria-label="Clear"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => refetchCampaigns()}
+              className="rounded-lg p-2 text-ink-400 hover:bg-ink-100 dark:hover:bg-ink-800"
+              aria-label="Refresh"
+            >
+              <RefreshCw size={15} />
+            </button>
+          </div>
+        </div>
+        <div className="mb-3">
+          <FilterBar
+            label="Campaign filter"
+            value={campaignTab}
+            onChange={(v) => { setCampaignTab(v); setCampaignId(""); }}
+            main={CAMPAIGN_MAIN}
+            more={CAMPAIGN_MORE}
+            moreLabel="More"
+          />
+        </div>
+
+        {campaignsError ? (
+          <div className="card flex items-center justify-between gap-3 text-sm text-red-700">
+            <span className="flex items-center gap-2">
+              <AlertTriangle size={16} /> {errText(campaignsError)}
+            </span>
+            <button
+              type="button"
+              className="btn-secondary !py-1.5 text-xs"
+              onClick={() => refetchCampaigns()}
+            >
+              Retry
+            </button>
+          </div>
+        ) : campaignsLoading ? (
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+            <SkeletonCards count={6} className="h-32 !rounded-xl" />
+          </div>
+        ) : !campaigns.length ? (
+          <div className="card">
+            <EmptyState
+              icon={Rocket}
+              title={
+                campaignTab || search
+                  ? "No campaigns match"
+                  : "No campaigns yet"
+              }
+              action={
+                !campaignTab &&
+                !search && (
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={() => setLaunchOpen(true)}
+                  >
+                    Create first campaign
+                  </button>
+                )
+              }
+            >
+              {campaignTab || search
+                ? "Try another filter or select \"All\"."
+                : "Add contacts in Upload Data, then create a campaign here."}
+            </EmptyState>
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+              {campaigns.map((c) => (
+                <CampaignCard
+                  key={c._id}
+                  campaign={c}
+                  channel={channel}
+                  selected={campaignId === c._id}
+                  busy={busy}
+                  onSelect={() => {
+                    const opening = campaignId !== c._id;
+                    setCampaignId(opening ? c._id : "");
+                    setPage(1);
+                    setFilter("");
+                    if (opening) requestAnimationFrame(() => contactsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+                  }}
+                  onAction={handleAction}
+                />
+              ))}
+            </div>
+            {campaignsData?.hasMore && (
+              <div className="mt-3 flex justify-center">
+                <button
+                  type="button"
+                  className="btn-secondary text-sm"
+                  onClick={() => setCampaignLimit((l) => l + 20)}
+                  disabled={campaignsFetching}
+                >
+                  {campaignsFetching ? (
+                    <Loader2 size={15} className="animate-spin" />
+                  ) : (
+                    "Load more"
+                  )}
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </section>
+
+      {/* Contact-wise list */}
+      <section ref={contactsRef} className="mt-8 scroll-mt-4">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-display text-lg font-semibold text-ink-900 dark:text-white">
+            {selectedCampaign ? (
+              <>
+                Contacts in “{selectedCampaign.name}”{" "}
+                <button
+                  type="button"
+                  onClick={() => setCampaignId("")}
+                  className="ml-2 inline-flex items-center gap-1 rounded-full bg-ink-100 px-2 py-0.5 text-xs font-semibold text-ink-600 dark:bg-ink-800 dark:text-ink-300"
+                >
+                  All campaigns <X size={12} />
+                </button>
+              </>
+            ) : (
+              "Contact status"
+            )}
+          </h2>
+          <FilterBar
+            label="Contact status filter"
+            value={filter}
+            onChange={(v) => { setFilter(v); setPage(1); }}
+            main={JOB_MAIN}
+            more={JOB_MORE}
+            moreLabel="More"
+          />
+        </div>
+
+        <div className="overflow-x-auto rounded-xl border border-ink-100 bg-white dark:border-ink-800 dark:bg-ink-900">
+          <table className="w-full min-w-[560px] text-sm">
+            <thead className="bg-ink-50 text-left text-xs uppercase tracking-wide text-ink-500 dark:bg-ink-800 dark:text-ink-400">
+              <tr>
+                <th className="px-4 py-3">Contact</th>
+                <th className="px-4 py-3">
+                  {channel === "email" ? "Email" : "Mobile"}
+                </th>
+                <th className="px-4 py-3">Day</th>
+                <th className="px-4 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading &&
+                Array.from({ length: 6 }).map((_, i) => (
+                  <tr
+                    key={i}
+                    className="border-t border-ink-100 dark:border-ink-800"
+                  >
+                    {[1, 2, 3, 4].map((k) => (
+                      <td key={k} className="px-4 py-3">
+                        <Skeleton className="h-4 w-24" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              {!isLoading && jobsError && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-4 py-10 text-center text-red-600"
+                  >
+                    {errText(jobsError)}
+                  </td>
+                </tr>
+              )}
+              {!isLoading && !jobsError && jobs.length === 0 && (
+                <tr>
+                  <td
+                    colSpan={4}
+                    className="px-4 py-10 text-center text-ink-500 dark:text-ink-400"
+                  >
+                    No contacts match this filter.
+                  </td>
+                </tr>
+              )}
+              {jobs.map((j) => (
+                <tr
+                  key={j.id}
+                  className={`border-t border-ink-100 transition-colors dark:border-ink-800 ${j.status === "processing" ? "bg-brand-50 dark:bg-brand-950/30" : ""}`}
+                >
+                  <td className="px-4 py-3 font-medium text-ink-900 dark:text-white">
+                    {j.name}
+                    {j.leadDeleted && <span className="ml-2 rounded-full bg-ink-100 px-1.5 py-0.5 text-[10px] font-semibold text-ink-500 dark:bg-ink-800">Removed from contacts</span>}
+                  </td>
+                  <td className="px-4 py-3 text-ink-600 dark:text-ink-300">
+                    {meta.contact(j)}
+                  </td>
+                  <td className="px-4 py-3 text-ink-500 dark:text-ink-400">
+                    {j.dayNumber ? `Day ${j.dayNumber}` : "—"}
+                  </td>
+                  <td className="px-4 py-3">
+                    {j.lastError && (j.status === "failed" || j.status === "paused" || j.scheduled) ? (
+                      <button
+                        type="button"
+                        onClick={() => showSendError(j.lastErrorRaw || j.lastError, j.errorCode)}
+                        className="inline-flex items-center gap-1.5 rounded-full hover:opacity-80"
+                        title="See why"
+                      >
+                        <StatusChip job={j} />
+                        <Info size={14} className="text-red-500" aria-label="See why it failed" />
+                      </button>
+                    ) : (
+                      <StatusChip job={j} />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {pagination && pagination.totalPages > 1 && (
+          <div className="mt-3 flex items-center justify-between text-sm text-ink-500 dark:text-ink-400">
+            <span>
+              Page {pagination.page} / {pagination.totalPages} ·{" "}
+              {pagination.total.toLocaleString("en-IN")} contacts{" "}
+              {isFetching && "· updating…"}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                className="btn-secondary !px-2.5 !py-1.5"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => p - 1)}
+                aria-label="Previous"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <button
+                type="button"
+                className="btn-secondary !px-2.5 !py-1.5"
+                disabled={page >= pagination.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                aria-label="Next"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
+      {launchOpen && (
+        <CampaignLauncher
+          key={channel}
+          channel={channel}
+          initialTemplate={initialTemplate}
+          onClose={closeLauncher}
+          onLaunched={refreshAll}
+        />
+      )}
+    </div>
+  );
+}
