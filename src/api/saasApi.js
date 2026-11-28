@@ -147,3 +147,13 @@ export const voiceApi = {
   cancelQueue: (leadIds) =>
     api.post("/voice/queue/cancel", leadIds ? { leadIds } : {}).then(data),
 };
+
+// Support tickets (customer -> Visitsly team)
+export const supportApi = {
+  list: (params) => api.get("/support/tickets", { params }).then(data),
+  unread: () => api.get("/support/unread").then(data),
+  get: (id) => api.get(`/support/tickets/${id}`).then(data),
+  create: (payload) => api.post("/support/tickets", payload).then(data),
+  reply: (id, message) => api.post(`/support/tickets/${id}/reply`, { message }).then(data),
+  close: (id, rating) => api.post(`/support/tickets/${id}/close`, rating ? { rating } : {}).then(data),
+};

@@ -53,6 +53,7 @@ const PricingPage = lazy(() => import('../features/saas/PricingPage.jsx'));
 const OnboardingPage = lazy(() => import('../features/onboarding/OnboardingPage.jsx'));
 const BillingPage = lazy(() => import('../features/saas/BillingPage.jsx'));
 const TeamPage = lazy(() => import('../features/saas/TeamPage.jsx'));
+const SupportTicketsPage = lazy(() => import('../features/saas/SupportTicketsPage.jsx'));
 const SupportEntry = lazy(() => import('../features/saas/SupportEntry.jsx'));
 const LeadSourcesPage = lazy(() => import('../features/growth/LeadSourcesPage.jsx'));
 const ReportsPage = lazy(() => import('../features/growth/ReportsPage.jsx'));
@@ -149,6 +150,7 @@ export default function AppRouter() {
 
           <Route path="/settings" element={<RequireAccess ownerOnly><SettingsPage /></RequireAccess>} />
           <Route path="/profile" element={<ProfilePage />} />
+          <Route path="/help" element={<SupportTicketsPage />} />
 
           {/* SaaS */}
           <Route path="/get-started" element={<Navigate to="/whatsapp" replace />} />

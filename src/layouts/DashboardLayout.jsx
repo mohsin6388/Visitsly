@@ -9,6 +9,7 @@ import {
 import { useAuthStore, useOrgRole, useCan, teamAvailable } from '../store/authStore.js';
 import { orgApi } from '../api/saasApi.js';
 import { conversationApi } from '../api/conversationApi.js';
+import SupportNavButton from '../features/saas/SupportNavButton.jsx';
 import SubscriptionBanner from '../features/saas/SubscriptionBanner.jsx';
 import LiveSendingPanel from '../features/outreach/LiveSendingPanel.jsx';
 import { authApi } from '../api/authApi.js';
@@ -259,6 +260,7 @@ export default function DashboardLayout() {
       <button onClick={() => setSidebarCollapsed((value) => !value)} className="hidden w-full items-center gap-3 rounded-lg px-3 py-2 text-xs text-slate-400 transition hover:bg-white/[0.06] hover:text-white lg:flex" title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
         {sidebarCollapsed ? <PanelLeftOpen size={16} /> : <PanelLeftClose size={16} />} {!sidebarCollapsed && 'Collapse sidebar'}
       </button>
+      <SupportNavButton collapsed={sidebarCollapsed} onNavigate={() => setSidebarOpen(false)} />
       <button onClick={handleLogout} className="flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-slate-300 transition hover:bg-white/[0.06] hover:text-white" title={sidebarCollapsed ? 'Log out' : undefined}>
         <LogOut size={18} />{!sidebarCollapsed && 'Log out'}
       </button>
